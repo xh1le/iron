@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Project } from "../types";
 
 type Props = {
@@ -16,7 +17,12 @@ export default function ProjectPicker({ projects, value, onChange, onDelete, onN
   const current = projects.find((p) => p.id === value);
 
   useEffect(() => {
-    const onDown = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Element;
+      if (ref.current?.contains(t)) return;
+      if (t.closest?.(".model-menu")) return;
+      setOpen(false);
+    };
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey);
@@ -27,7 +33,32 @@ export default function ProjectPicker({ projects, value, onChange, onDelete, onN
     if (!open || !ref.current) return;
     const r = ref.current.getBoundingClientRect();
     setPos({ top: r.bottom + 8, left: r.left, width: r.width });
+    const onScroll = () => setOpen(false);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
+    return () => { window.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", onScroll); };
   }, [open]);
+
+  const menu = open && pos ? (
+    <div className="model-menu project-menu" role="listbox" style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width, zIndex: 9999 }}>
+      {projects.map((p, i) => (
+        <div key={p.id} className={`project-row ${p.id === value ? "active" : ""}`} style={{ ["--i" as any]: i } as any}>
+          <button role="option" aria-selected={p.id === value} className="model-option project-option" onClick={() => { onChange(p.id); setOpen(false); }}>
+            <span className="model-name">{p.name}</span>
+            {p.id === value && <span className="check">✓</span>}
+          </button>
+          {projects.length > 1 && (
+            <button type="button" className="icon-mini danger" title="delete project" onClick={(e) => { e.stopPropagation(); onDelete(p.id); }}>
+              ×
+            </button>
+          )}
+        </div>
+      ))}
+      <button type="button" className="model-option new-project" onClick={() => { setOpen(false); onNew(); }}>
+        + new project
+      </button>
+    </div>
+  ) : null;
 
   return (
     <div ref={ref} className={`model-picker project-picker ${open ? "open" : ""}`}>
@@ -35,26 +66,7 @@ export default function ProjectPicker({ projects, value, onChange, onDelete, onN
         <span className="model-label">{current?.name || "home"}</span>
         <span className={`chev ${open ? "up" : ""}`} aria-hidden="true">▾</span>
       </button>
-      {open && pos && (
-        <div className="model-menu project-menu" role="listbox" style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width, zIndex: 60 }}>
-          {projects.map((p, i) => (
-            <div key={p.id} className={`project-row ${p.id === value ? "active" : ""}`} style={{ ["--i" as any]: i } as any}>
-              <button role="option" aria-selected={p.id === value} className="model-option project-option" onClick={() => { onChange(p.id); setOpen(false); }}>
-                <span className="model-name">{p.name}</span>
-                {p.id === value && <span className="check">✓</span>}
-              </button>
-              {projects.length > 1 && (
-                <button type="button" className="icon-mini danger" title="delete project" onClick={(e) => { e.stopPropagation(); onDelete(p.id); }}>
-                  ×
-                </button>
-              )}
-            </div>
-          ))}
-          <button type="button" className="model-option new-project" onClick={() => { setOpen(false); onNew(); }}>
-            + new project
-          </button>
-        </div>
-      )}
+      {menu && createPortal(menu, document.body)}
     </div>
   );
 }
