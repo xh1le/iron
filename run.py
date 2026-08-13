@@ -132,6 +132,12 @@ def main() -> None:
     from desktop import open_window
 
     open_window(url)
+    if owned:
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            return
 
 
 if __name__ == "__main__":

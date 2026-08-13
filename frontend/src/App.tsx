@@ -1,4 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import Iridescence from "./components/Iridescence";
+import Modal from "./components/Modal";
+import ModelPicker from "./components/ModelPicker";
+import ProjectPicker from "./components/ProjectPicker";
 import type {
   AgentSnapshot,
   Attachment,
@@ -61,6 +65,7 @@ export function App() {
   const [chatId, setChatId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState<"chat" | "settings">("chat");
+  const [showNewProject, setShowNewProject] = useState(false);
   const [goal, setGoal] = useState("");
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState(false);
@@ -255,15 +260,25 @@ export function App() {
     boxRef.current?.focus();
   }
 
-  async function newProject() {
-    const name = window.prompt("Project name", "untitled");
-    if (!name) return;
+  async function newProject(name: string) {
     const item = await api.json<Project>("/api/projects", {
       method: "POST",
       body: JSON.stringify({ name, workspace: settings?.workspace || "" }),
     });
+    if ((item as unknown as { error?: string }).error) return;
     setProjects((prev) => [...prev, item]);
     await switchProject(item.id);
+  }
+
+  async function deleteProject(id: string) {
+    if (projects.length <= 1) return;
+    if (!window.confirm("Delete this project and all its chats?")) return;
+    const res = await api.json<{ ok: boolean }>(`/api/projects/${id}`, { method: "DELETE" });
+    if (!res.ok) return;
+    const remaining = projects.filter((p) => p.id !== id);
+    setProjects(remaining);
+    if (projectId === id) await switchProject(remaining[0].id);
+    else await refreshChats(projectId);
   }
 
   async function launch(text = goal) {
@@ -395,21 +410,7 @@ export function App() {
             +
           </button>
           <input ref={fileRef} type="file" multiple hidden onChange={(e) => onPickFiles(e.target.files)} />
-          <label className="model-pick">
-            <span className="dot-mini" />
-            <select
-              value={settings?.model || ""}
-              onChange={(e) => saveSettings({ model: e.target.value })}
-              title="worker model"
-            >
-              <option value="">auto</option>
-              {models.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          </label>
+          <ModelPicker value={settings?.model || ""} options={models} onChange={(v) => saveSettings({ model: v })} />
         </div>
         <div className="actions">
           {activeRun && (activeRun.status === "running" || activeRun.status === "needs_input") && (
@@ -483,11 +484,9 @@ export function App() {
   return (
     <div className="shell">
       <div className="aura" aria-hidden="true">
-        <span className="orb o1" />
-        <span className="orb o2" />
-        <span className="orb o3" />
-        <span className="orb o4" />
+        <Iridescence color={[0.55, 0.62, 0.82]} speed={1.05} amplitude={0.18} mouseReact />
         <span className="mesh" />
+        <span className="vignette" />
       </div>
       <div className={`app ${activeAgents.length ? "swarm-on" : "swarm-off"}`}>
         <aside className="panel side">
@@ -507,18 +506,7 @@ export function App() {
             <button className="solid wide" onClick={newChat}>
               new chat
             </button>
-            <div className="proj-row">
-              <select value={projectId} onChange={(e) => switchProject(e.target.value)}>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-              <button className="ghost" onClick={newProject} title="new project">
-                +
-              </button>
-            </div>
+            <ProjectPicker projects={projects} value={projectId} onChange={switchProject} onDelete={deleteProject} onNew={() => setShowNewProject(true)} />
             <input className="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="search chats" />
           </div>
 
@@ -647,11 +635,6 @@ export function App() {
           <main className={`panel center ${chat ? "has-run" : "idle"}`}>
             {!chat && (
               <div className="landing">
-                <div className="landing-mark" aria-hidden="true">
-                  <i />
-                  <i />
-                  <i />
-                </div>
                 <h2>give iron a goal</h2>
                 <p>projects, history, uploads — then the swarm takes it</p>
                 {composer}
@@ -729,6 +712,7 @@ export function App() {
           </div>
         </aside>
       </div>
+      <Modal open={showNewProject} title="new project" placeholder="project name" initial="" onClose={() => setShowNewProject(false)} onConfirm={(name) => { setShowNewProject(false); newProject(name); }} />
     </div>
   );
 }
