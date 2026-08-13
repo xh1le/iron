@@ -40,7 +40,7 @@ export default function ModelPicker({ value, options, onChange, placeholder = "a
   const display = value ? value : placeholder;
 
   const menu = open && pos ? (
-    <div className="model-menu" role="listbox" style={{ position: "fixed", left: pos.left, width: pos.width, bottom: pos.bottom, zIndex: 9999 }}>
+    <div className="model-menu" role="listbox" style={{ position: "fixed", left: pos.left, width: pos.width, bottom: pos.bottom, zIndex: 9999, opacity: 1, transform: "none", pointerEvents: "auto" }}>
       {all.map((opt, i) => {
         const isActive = (opt || "") === (value || "");
         const name = opt || placeholder;

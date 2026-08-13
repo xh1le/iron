@@ -40,7 +40,7 @@ export default function ProjectPicker({ projects, value, onChange, onDelete, onN
   }, [open]);
 
   const menu = open && pos ? (
-    <div className="model-menu project-menu" role="listbox" style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width, zIndex: 9999 }}>
+    <div className="model-menu project-menu" role="listbox" style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width, zIndex: 9999, opacity: 1, transform: "none", pointerEvents: "auto" }}>
       {projects.map((p, i) => (
         <div key={p.id} className={`project-row ${p.id === value ? "active" : ""}`} style={{ ["--i" as any]: i } as any}>
           <button role="option" aria-selected={p.id === value} className="model-option project-option" onClick={() => { onChange(p.id); setOpen(false); }}>
