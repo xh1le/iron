@@ -327,11 +327,9 @@ code, .mono, kbd { font-family: "IBM Plex Mono", ui-monospace, monospace; }
   scrollbar-color: rgba(255,255,255,0.18) transparent;
   padding: 6px;
   border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.16);
-  background: rgba(28, 34, 44, 0.94);
-  backdrop-filter: blur(24px) saturate(160%);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
-  box-shadow: 0 16px 40px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.14);
+  border: 1px solid rgba(255,255,255,0.18);
+  background: #1e242f;
+  box-shadow: 0 20px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04), inset 0 1px 0 rgba(255,255,255,0.08);
   display: grid;
   gap: 2px;
   opacity: 0;
