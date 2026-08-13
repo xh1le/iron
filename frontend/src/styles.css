@@ -320,7 +320,10 @@ code, .mono, kbd { font-family: "IBM Plex Mono", ui-monospace, monospace; }
   bottom: calc(100% + 8px);
   min-width: 200px;
   max-height: 260px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.18) transparent;
   padding: 6px;
   border-radius: 14px;
   border: 1px solid rgba(255,255,255,0.14);
@@ -336,6 +339,9 @@ code, .mono, kbd { font-family: "IBM Plex Mono", ui-monospace, monospace; }
   transition: opacity 0.2s var(--ease), transform 0.2s var(--ease);
   z-index: 20;
 }
+.model-menu::-webkit-scrollbar { width: 6px; height: 6px; }
+.model-menu::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 999px; }
+.model-menu::-webkit-scrollbar-track { background: transparent; }
 .model-picker.open .model-menu { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
 .model-option {
   display: flex;
