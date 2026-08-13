@@ -12,6 +12,7 @@ type Props = {
 export default function ProjectPicker({ projects, value, onChange, onDelete, onNew }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
   const current = projects.find((p) => p.id === value);
 
   useEffect(() => {
@@ -22,30 +23,38 @@ export default function ProjectPicker({ projects, value, onChange, onDelete, onN
     return () => { window.removeEventListener("mousedown", onDown); window.removeEventListener("keydown", onKey); };
   }, []);
 
+  useEffect(() => {
+    if (!open || !ref.current) return;
+    const r = ref.current.getBoundingClientRect();
+    setPos({ top: r.bottom + 8, left: r.left, width: r.width });
+  }, [open]);
+
   return (
     <div ref={ref} className={`model-picker project-picker ${open ? "open" : ""}`}>
       <button type="button" className="model-trigger project-trigger" onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open}>
         <span className="model-label">{current?.name || "home"}</span>
         <span className={`chev ${open ? "up" : ""}`} aria-hidden="true">▾</span>
       </button>
-      <div className="model-menu project-menu" role="listbox">
-        {projects.map((p, i) => (
-          <div key={p.id} className={`project-row ${p.id === value ? "active" : ""}`} style={{ ["--i" as any]: i } as any}>
-            <button role="option" aria-selected={p.id === value} className="model-option project-option" onClick={() => { onChange(p.id); setOpen(false); }}>
-              <span className="model-name">{p.name}</span>
-              {p.id === value && <span className="check">✓</span>}
-            </button>
-            {projects.length > 1 && (
-              <button type="button" className="icon-mini danger" title="delete project" onClick={(e) => { e.stopPropagation(); onDelete(p.id); }}>
-                ×
+      {open && pos && (
+        <div className="model-menu project-menu" role="listbox" style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width, zIndex: 60 }}>
+          {projects.map((p, i) => (
+            <div key={p.id} className={`project-row ${p.id === value ? "active" : ""}`} style={{ ["--i" as any]: i } as any}>
+              <button role="option" aria-selected={p.id === value} className="model-option project-option" onClick={() => { onChange(p.id); setOpen(false); }}>
+                <span className="model-name">{p.name}</span>
+                {p.id === value && <span className="check">✓</span>}
               </button>
-            )}
-          </div>
-        ))}
-        <button type="button" className="model-option new-project" onClick={() => { setOpen(false); onNew(); }}>
-          + new project
-        </button>
-      </div>
+              {projects.length > 1 && (
+                <button type="button" className="icon-mini danger" title="delete project" onClick={(e) => { e.stopPropagation(); onDelete(p.id); }}>
+                  ×
+                </button>
+              )}
+            </div>
+          ))}
+          <button type="button" className="model-option new-project" onClick={() => { setOpen(false); onNew(); }}>
+            + new project
+          </button>
+        </div>
+      )}
     </div>
   );
 }
