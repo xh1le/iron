@@ -35,9 +35,9 @@ export default function ProjectPicker({ projects, value, onChange, onDelete, onN
     const MENU_H = 260;
     const below = r.bottom + 8;
     const top = below + MENU_H > window.innerHeight ? Math.max(8, r.top - 8 - MENU_H) : below;
-    const width = Math.max(r.width, 200);
-    const left = Math.min(r.left, window.innerWidth - width - 8);
-    setPos({ top, left: Math.max(8, left), width });
+    const width = 280;
+    const left = r.left;
+    setPos({ top, left, width });
     const onScroll = (e: Event) => {
       const t = e.target as Element | null;
       if (t instanceof Element && t.closest(".model-menu")) return;
