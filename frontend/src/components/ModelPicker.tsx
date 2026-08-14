@@ -38,7 +38,11 @@ export default function ModelPicker({ value, options, onChange, placeholder = "a
     } else {
       setPos({ bottom: window.innerHeight - r.top + 8, left: r.left, width: Math.max(r.width, 220) } as any);
     }
-    const onScroll = () => setOpen(false);
+    const onScroll = (e: Event) => {
+      const t = e.target as Element | null;
+      if (t instanceof Element && t.closest(".model-menu")) return;
+      setOpen(false);
+    };
     window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", onScroll);
     return () => { window.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", onScroll); };

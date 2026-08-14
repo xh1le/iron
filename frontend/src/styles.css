@@ -538,6 +538,9 @@ code, .mono, kbd { font-family: "IBM Plex Mono", ui-monospace, monospace; }
 .settings-grid section:hover { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.14); transform: translateY(-1px); }
 .settings-grid h3 { margin: 0; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); }
 .settings-grid label { font-size: 11px; color: var(--faint); display: grid; gap: 4px; }
+.setting-field { font-size: 11px; color: var(--faint); display: grid; gap: 4px; }
+.setting-field .model-trigger { width: 100%; justify-content: space-between; }
+.setting-field .model-picker { width: 100%; }
 
 .live { display: flex; gap: 8px; align-items: center; color: var(--faint); font-size: 11px; padding: 10px 18px 12px; }
 .sep { width: 3px; height: 3px; border-radius: 50%; background: var(--faint); }

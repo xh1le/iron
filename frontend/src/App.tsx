@@ -556,14 +556,14 @@ export function App() {
               <div className="settings-grid">
                 <section>
                   <h3>models</h3>
-                  <label>
-                    worker
+                  <div className="setting-field">
+                    <span>worker</span>
                     <ModelPicker value={settings.model} options={models} onChange={(v) => saveSettings({ model: v })} placeholder="auto" />
-                  </label>
-                  <label>
-                    orchestrator
+                  </div>
+                  <div className="setting-field">
+                    <span>orchestrator</span>
                     <ModelPicker value={settings.orchestrator_model} options={models} onChange={(v) => saveSettings({ orchestrator_model: v })} placeholder="same as worker" />
-                  </label>
+                  </div>
                   <label>
                     ollama host
                     <input value={settings.ollama_host} onChange={(e) => saveSettings({ ollama_host: e.target.value })} />
