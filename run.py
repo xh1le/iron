@@ -62,6 +62,34 @@ def start_server(host: str, port: int) -> None:
     uvicorn.Server(config).run()
 
 
+def supervise(host: str, port: int) -> None:
+    backoff = 1.0
+    while True:
+        t = threading.Thread(target=start_server, args=(host, port), daemon=True)
+        t.start()
+        if not wait_ready(host, port, seconds=15):
+            print(f"iron: waiting for {host}:{port} ({backoff:.0f}s)", file=sys.stderr)
+            time.sleep(backoff)
+            backoff = min(backoff * 1.7, 20)
+            continue
+        backoff = 1.0
+        # healthy — watch
+        fails = 0
+        while True:
+            if not t.is_alive():
+                break
+            if iron_health(f"http://{host}:{port}"):
+                fails = 0
+            else:
+                fails += 1
+                if fails >= 3:
+                    break
+            time.sleep(2)
+        print(f"iron: restarting {host}:{port} …", file=sys.stderr)
+        time.sleep(backoff)
+        backoff = min(backoff * 1.7, 20)
+
+
 def wait_ready(host: str, port: int, seconds: float = 12.0) -> bool:
     deadline = time.time() + seconds
     while time.time() < deadline:
@@ -105,8 +133,8 @@ def main() -> None:
 
     if not port_open(host, port):
         owned = True
-        threading.Thread(target=start_server, args=(host, port), daemon=True).start()
-        if not wait_ready(host, port):
+        threading.Thread(target=supervise, args=(host, port), daemon=True).start()
+        if not wait_ready(host, port, seconds=15):
             print(f"iron failed to start on {url}", file=sys.stderr)
             sys.exit(1)
 

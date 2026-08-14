@@ -558,21 +558,11 @@ export function App() {
                   <h3>models</h3>
                   <label>
                     worker
-                    <select value={settings.model} onChange={(e) => saveSettings({ model: e.target.value })}>
-                      <option value="">auto</option>
-                      {models.map((m) => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
+                    <ModelPicker value={settings.model} options={models} onChange={(v) => saveSettings({ model: v })} placeholder="auto" />
                   </label>
                   <label>
                     orchestrator
-                    <select value={settings.orchestrator_model} onChange={(e) => saveSettings({ orchestrator_model: e.target.value })}>
-                      <option value="">same as worker</option>
-                      {models.map((m) => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
+                    <ModelPicker value={settings.orchestrator_model} options={models} onChange={(v) => saveSettings({ orchestrator_model: v })} placeholder="same as worker" />
                   </label>
                   <label>
                     ollama host
