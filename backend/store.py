@@ -237,6 +237,34 @@ class Store:
                     return dict(item)
         return None
 
+    def delete_message(self, chat_id: str, message_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            for item in self._data["chats"]:
+                if item["id"] != chat_id:
+                    continue
+                before = len(item["messages"])
+                item["messages"] = [m for m in item["messages"] if m["id"] != message_id]
+                if len(item["messages"]) == before:
+                    return None
+                item["updated_at"] = now_ms()
+                self._save()
+                return dict(item)
+        return None
+
+    def edit_message(self, chat_id: str, message_id: str, content: str) -> dict[str, Any] | None:
+        with self._lock:
+            for item in self._data["chats"]:
+                if item["id"] != chat_id:
+                    continue
+                for msg in item["messages"]:
+                    if msg["id"] == message_id and msg.get("role") == "user":
+                        msg["content"] = content
+                        item["updated_at"] = now_ms()
+                        self._save()
+                        return dict(item)
+                return None
+        return None
+
     def save_upload(self, chat_id: str, filename: str, data: bytes) -> dict[str, Any]:
         if len(data) > MAX_UPLOAD:
             raise ValueError("file too large (25MB max)")

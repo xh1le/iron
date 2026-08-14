@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Iridescence from "./components/Iridescence";
+import Confirm from "./components/Confirm";
+import Markdown from "./components/Markdown";
 import Modal from "./components/Modal";
 import ModelPicker from "./components/ModelPicker";
 import ProjectPicker from "./components/ProjectPicker";
@@ -66,6 +68,12 @@ export function App() {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState<"chat" | "settings">("chat");
   const [showNewProject, setShowNewProject] = useState(false);
+  const [toast, setToast] = useState("");
+  const [editingMsg, setEditingMsg] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [renameText, setRenameText] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState<{ chatId?: string; projectId?: string; messageId?: string } | null>(null);
   const [goal, setGoal] = useState("");
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState(false);
@@ -272,13 +280,20 @@ export function App() {
 
   async function deleteProject(id: string) {
     if (projects.length <= 1) return;
-    if (!window.confirm("Delete this project and all its chats?")) return;
+    setConfirmDelete({ projectId: id });
+  }
+
+  async function confirmDeleteProject() {
+    const id = confirmDelete?.projectId;
+    if (!id) return;
     const res = await api.json<{ ok: boolean }>(`/api/projects/${id}`, { method: "DELETE" });
     if (!res.ok) return;
     const remaining = projects.filter((p) => p.id !== id);
     setProjects(remaining);
     if (projectId === id) await switchProject(remaining[0].id);
     else await refreshChats(projectId);
+    setConfirmDelete(null);
+    flash("project deleted");
   }
 
   async function launch(text = goal) {
@@ -347,6 +362,66 @@ export function App() {
     if (chatId === id) setChatId(null);
   }
 
+  async function deleteMessage(id: string) {
+    if (!chatId) return;
+    const res = await api.json<{ ok: boolean; chat?: Chat }>(`/api/chats/${chatId}/messages/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, messages: c.messages.filter((m) => m.id !== id) } : c)));
+      flash("message deleted");
+    }
+    setConfirmDelete(null);
+  }
+
+  async function saveEdit(id: string) {
+    if (!chatId) return;
+    const content = editText.trim();
+    if (!content) return;
+    const res = await api.json<{ ok: boolean; chat?: Chat }>(`/api/chats/${chatId}/messages/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ content }),
+    });
+    if (res.ok && res.chat) {
+      setChats((prev) => prev.map((c) => (c.id === chatId ? res.chat! : c)));
+      setEditingMsg(null);
+      flash("message updated");
+    }
+  }
+
+  function flash(text: string) {
+    setToast(text);
+    window.setTimeout(() => setToast(""), 1800);
+  }
+
+  async function copyText(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      flash("copied");
+    } catch {
+      /* clipboard may be blocked */
+    }
+  }
+
+  async function regenerate() {
+    if (!chat) return;
+    const lastUser = [...chat.messages].reverse().find((m) => m.role === "user");
+    if (!lastUser) return;
+    await launch(lastUser.content);
+  }
+
+  async function resendEdited(id: string) {
+    const content = editText.trim();
+    if (!content) return;
+    await saveEdit(id);
+    await launch(content);
+  }
+
+  async function renameChat(title: string) {
+    if (!chatId) return;
+    const next = await api.json<Chat>(`/api/chats/${chatId}`, { method: "PATCH", body: JSON.stringify({ title }) });
+    setChats((prev) => prev.map((c) => (c.id === next.id ? { ...c, ...next } : c)));
+    setRenaming(false);
+  }
+
   async function pinChat(c: Chat) {
     const next = await api.json<Chat>(`/api/chats/${c.id}`, {
       method: "PATCH",
@@ -401,7 +476,10 @@ export function App() {
         placeholder={chat ? "message iron…" : "what should iron do?"}
         onChange={(e) => setGoal(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) launch();
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            launch();
+          }
         }}
       />
       <div className="row">
@@ -420,7 +498,7 @@ export function App() {
           )}
           <button className="solid" disabled={busy || !goal.trim()} onClick={() => launch()}>
             send
-            <kbd>ctrl↵</kbd>
+            <kbd>enter</kbd>
           </button>
         </div>
       </div>
@@ -429,54 +507,87 @@ export function App() {
 
   function renderMessage(m: Message) {
     if (m.role === "user") {
-      return (
-        <div key={m.id} className="bubble me">
-          <div>{m.content}</div>
-          {!!m.attachments?.length && (
-            <div className="attach-list">
-              {m.attachments.map((f) => (
-                <span key={f.path} className="attach">
-                  {f.name}
-                </span>
-              ))}
+      if (editingMsg === m.id) {
+        return (
+          <div key={m.id} className="bubble me editing">
+            <textarea value={editText} onChange={(e) => setEditText(e.target.value)} onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); resendEdited(m.id); }
+              if (e.key === "Escape") setEditingMsg(null);
+            }} autoFocus />
+            <div className="edit-actions">
+              <button type="button" className="ghost" onClick={() => setEditingMsg(null)}>cancel</button>
+              <button type="button" className="ghost" onClick={() => saveEdit(m.id)}>save</button>
+              <button type="button" className="solid" disabled={!editText.trim()} onClick={() => resendEdited(m.id)}>send & run</button>
             </div>
-          )}
+          </div>
+        );
+      }
+      return (
+        <div key={m.id} className="msg-row">
+          <div className="bubble me">
+            <div>{m.content}</div>
+            {!!m.attachments?.length && (
+              <div className="attach-list">
+                {m.attachments.map((f) => (
+                  <span key={f.path} className="attach">{f.name}</span>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="msg-ops">
+            <button type="button" title="edit & resend" onClick={() => { setEditingMsg(m.id); setEditText(m.content); }}>✎</button>
+            <button type="button" title="copy" onClick={() => copyText(m.content)}>⧉</button>
+            <button type="button" className="danger" title="delete" onClick={() => setConfirmDelete({ messageId: m.id })}>×</button>
+          </div>
         </div>
       );
     }
     const rid = m.run_id || "";
     const run = rid ? runs[rid] : null;
+    const runningMsg = !!rid && (!run || ["running", "needs_input", "queued"].includes(run.status));
     return (
-      <div key={m.id} className="turn">
-        {orchThink[rid] && <div className="msg think-msg">▹ {orchThink[rid]}</div>}
-        {plans[rid]?.length ? (
-          <div className="msg plan">
-            <span className="label">plan</span>
-            {plans[rid].map((t, i) => (
-              <div key={i} className="mono step">
-                <em>{String(i + 1).padStart(2, "0")}</em>
-                <span>
-                  <b>{t.title}</b>
-                  {t.goal}
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : null}
-        {orchText[rid] && !m.content && <div className="msg">{orchText[rid]}</div>}
-        {asks[rid] && (
-          <div className="ask">
-            {asks[rid]}
-            <div className="row" style={{ marginTop: 10 }}>
-              <input className="reply" value={input} onChange={(e) => setInput(e.target.value)} placeholder="reply…" />
-              <button className="solid" onClick={reply}>
-                send
-              </button>
+      <div key={m.id} className="msg-row">
+        <div className="turn">
+          {orchThink[rid] && <div className="msg think-msg">▹ {orchThink[rid]}</div>}
+          {plans[rid]?.length ? (
+            <div className="msg plan">
+              <span className="label">plan</span>
+              {plans[rid].map((t, i) => (
+                <div key={i} className="mono step">
+                  <em>{String(i + 1).padStart(2, "0")}</em>
+                  <span>
+                    <b>{t.title}</b>
+                    {t.goal}
+                  </span>
+                </div>
+              ))}
             </div>
+          ) : null}
+          {orchText[rid] && !m.content && <div className="msg">{orchText[rid]}</div>}
+          {asks[rid] && (
+            <div className="ask">
+              {asks[rid]}
+              <div className="row" style={{ marginTop: 10 }}>
+                <input className="reply" value={input} onChange={(e) => setInput(e.target.value)} placeholder="reply…" />
+                <button className="solid" onClick={reply}>send</button>
+              </div>
+            </div>
+          )}
+          {runningMsg && !m.content && (
+            <div className="typing"><span className="dot-mini" /><span className="dot-mini" /><span className="dot-mini" /> working…</div>
+          )}
+          {(m.content || run?.result) && (
+            <div className="bubble them"><Markdown text={m.content || run?.result || ""} /></div>
+          )}
+          {run?.error && <div className="msg">{run.error}</div>}
+        </div>
+        {!runningMsg && (
+          <div className="msg-ops">
+            <button type="button" title="regenerate" onClick={regenerate}>↻</button>
+            <button type="button" title="copy" onClick={() => copyText(m.content || run?.result || "")}>⧉</button>
+            <button type="button" className="danger" title="delete" onClick={() => setConfirmDelete({ messageId: m.id })}>×</button>
           </div>
         )}
-        {(m.content || run?.result) && <div className="bubble them">{m.content || run?.result}</div>}
-        {run?.error && <div className="msg">{run.error}</div>}
       </div>
     );
   }
@@ -529,7 +640,7 @@ export function App() {
                   <button type="button" onClick={() => pinChat(c)} title="pin">
                     ★
                   </button>
-                  <button type="button" onClick={() => removeChat(c.id)} title="delete">
+                  <button type="button" onClick={() => setConfirmDelete({ chatId: c.id })} title="delete">
                     ×
                   </button>
                 </div>
@@ -646,7 +757,25 @@ export function App() {
                       <span>{project?.name || "home"}</span>
                       <span className="mono">{fmtDay(chat.updated_at)}</span>
                     </div>
-                    <h2>{chat.title || "New chat"}</h2>
+                    {renaming ? (
+                      <div className="rename-row">
+                        <input
+                          value={renameText}
+                          onChange={(e) => setRenameText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") renameChat(renameText.trim());
+                            if (e.key === "Escape") setRenaming(false);
+                          }}
+                          autoFocus
+                        />
+                        <button type="button" className="ghost" onClick={() => renameChat(renameText.trim())}>save</button>
+                      </div>
+                    ) : (
+                      <div className="title-row">
+                        <h2>{chat.title || "New chat"}</h2>
+                        <button type="button" className="icon-mini" title="rename" onClick={() => { setRenaming(true); setRenameText(chat.title || ""); }}>✎</button>
+                      </div>
+                    )}
                   </div>
                 </header>
                 <div className="stream" ref={streamRef}>
@@ -703,6 +832,31 @@ export function App() {
         </aside>
       </div>
       <Modal open={showNewProject} title="new project" placeholder="project name" initial="" onClose={() => setShowNewProject(false)} onConfirm={(name) => { setShowNewProject(false); newProject(name); }} />
+      <Confirm
+        open={!!confirmDelete?.chatId}
+        title="delete chat?"
+        body="This permanently removes the chat and its messages. You can't undo this."
+        confirmLabel="delete"
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={() => { const id = confirmDelete?.chatId; if (id) removeChat(id); setConfirmDelete(null); }}
+      />
+      <Confirm
+        open={!!confirmDelete?.projectId}
+        title="delete project?"
+        body="This permanently removes the project and all its chats. You can't undo this."
+        confirmLabel="delete"
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={confirmDeleteProject}
+      />
+      <Confirm
+        open={!!confirmDelete?.messageId}
+        title="delete message?"
+        body="This message will be removed from the chat."
+        confirmLabel="delete"
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={() => { const id = confirmDelete?.messageId; if (id) deleteMessage(id); }}
+      />
+      {toast && <div className="toast">{toast}</div>}
     </div>
   );
 }

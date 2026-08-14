@@ -127,6 +127,17 @@ def create_app() -> FastAPI:
     async def delete_chat(chat_id: str) -> dict[str, Any]:
         return {"ok": store.delete_chat(chat_id)}
 
+    @app.delete("/api/chats/{chat_id}/messages/{message_id}")
+    async def delete_message(chat_id: str, message_id: str) -> dict[str, Any]:
+        item = store.delete_message(chat_id, message_id)
+        return {"ok": item is not None, "chat": item}
+
+    @app.patch("/api/chats/{chat_id}/messages/{message_id}")
+    async def patch_message(chat_id: str, message_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        content = str(body.get("content") or "")
+        item = store.edit_message(chat_id, message_id, content)
+        return {"ok": item is not None, "chat": item}
+
     @app.post("/api/chats/{chat_id}/upload")
     async def upload(chat_id: str, file: UploadFile = File(...)) -> dict[str, Any]:
         if not store.chat(chat_id):
