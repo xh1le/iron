@@ -34,10 +34,16 @@ export default function ModelPicker({ value, options, onChange, placeholder = "a
     const spaceBelow = window.innerHeight - r.bottom;
     const spaceAbove = r.top;
     const below = spaceBelow > estH || spaceBelow > spaceAbove;
+
+    // size to longest option (mono ~7.4px/char at 12px) + padding/check, clamped to viewport
+    const longest = Math.max(placeholder.length, ...options.map((o) => o.length), 8);
+    const width = Math.min(Math.max(r.width, 200, longest * 7.4 + 52), window.innerWidth - 24);
+    const left = Math.min(Math.max(8, r.left), window.innerWidth - width - 8);
+
     if (below) {
-      setPos({ top: r.bottom + 8, bottom: "auto" as any, left: r.left, width: Math.max(r.width, 220) });
+      setPos({ top: r.bottom + 8, bottom: "auto", left, width });
     } else {
-      setPos({ top: "auto" as any, bottom: window.innerHeight - r.top + 8, left: r.left, width: Math.max(r.width, 220) });
+      setPos({ top: "auto", bottom: window.innerHeight - r.top + 8, left, width });
     }
     const onScroll = (e: Event) => {
       const t = e.target as Element | null;
