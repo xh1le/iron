@@ -12,7 +12,7 @@ type Props = {
 export default function ModelPicker({ value, options, onChange, placeholder = "auto", onOpen }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number; width: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number | string; bottom: number | string; left: number; width: number } | null>(null);
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -35,9 +35,9 @@ export default function ModelPicker({ value, options, onChange, placeholder = "a
     const spaceAbove = r.top;
     const below = spaceBelow > estH || spaceBelow > spaceAbove;
     if (below) {
-      setPos({ top: r.bottom + 8, left: r.left, width: Math.max(r.width, 220) } as any);
+      setPos({ top: r.bottom + 8, bottom: "auto" as any, left: r.left, width: Math.max(r.width, 220) });
     } else {
-      setPos({ bottom: window.innerHeight - r.top + 8, left: r.left, width: Math.max(r.width, 220) } as any);
+      setPos({ top: "auto" as any, bottom: window.innerHeight - r.top + 8, left: r.left, width: Math.max(r.width, 220) });
     }
     const onScroll = (e: Event) => {
       const t = e.target as Element | null;
@@ -59,13 +59,13 @@ export default function ModelPicker({ value, options, onChange, placeholder = "a
         position: "fixed",
         left: pos.left,
         width: pos.width,
-        top: (pos as any).top,
-        bottom: (pos as any).bottom,
+        top: pos.top,
+        bottom: pos.bottom,
         zIndex: 9999,
         opacity: 1,
         transform: "none",
         pointerEvents: "auto",
-      } as any}
+      }}
     >
       {all.map((opt, i) => {
         const isActive = (opt || "") === (value || "");
