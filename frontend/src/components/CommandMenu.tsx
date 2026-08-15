@@ -39,6 +39,7 @@ export default function CommandMenu({ query, selected, hasChat, onHover }: MenuP
           role="menuitem"
           key={c.name}
           className={`cmd-item ${i === selected ? "sel" : ""}`}
+          style={{ ["--i" as any]: i } as any}
           onMouseEnter={() => onHover(i)}
         >
           <span className="cmd-name">/{c.name}</span>
