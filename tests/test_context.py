@@ -75,6 +75,19 @@ def test_build_memory_block_injects_facts(tmp_path, monkeypatch):
     assert "PROJECT MEMORY" in block
 
 
+def test_build_memory_block_injects_summary(tmp_path, monkeypatch):
+    monkeypatch.setattr("backend.store.iron_home", lambda: tmp_path)
+    from backend.store import Store
+
+    store = Store()
+    project = store.projects()[0]
+    chat = store.create_chat(project["id"], "New chat")
+    store.update_chat_memory(chat["id"], "DECISIONS: use fastapi\nFACTS: server on 7744")
+    block = asyncio.run(build_memory_block(store, project["id"], chat["id"], "what did we decide?", 4000))
+    assert "DECISIONS: use fastapi" in block
+    assert "MEMORY" in block
+
+
 def test_build_memory_block_empty(tmp_path, monkeypatch):
     monkeypatch.setattr("backend.store.iron_home", lambda: tmp_path)
     from backend.store import Store

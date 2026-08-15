@@ -78,6 +78,7 @@ def create_app() -> FastAPI:
         store.finish_run(run.id, run.result or run.error, run.status, usage=run.usage_snapshot())
         if run.project_id:
             store.memory_put_batch(run.project_id, run.memory.all(), run.id)
+        engine.schedule_summary(run.chat_id, run.project_id)
 
     @app.get("/api/health")
     async def health() -> dict[str, Any]:

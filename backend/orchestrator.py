@@ -15,6 +15,16 @@ from .ollama import ModelError, OllamaClient, extract_delta, merge_tool_call_del
 from .parse import extract_text_tool_calls
 from .tools.registry import ToolRegistry
 
+SUMMARY_SYSTEM = """You are iron's memory keeper. Compress the conversation into a dense memory block a future agent can use to continue the work without re-reading history.
+
+Format:
+DECISIONS: bullet list of decisions
+BUILT: what was created or changed (files, apis, code)
+FACTS: durable facts about the project or user
+OPEN: unresolved items or next steps
+
+Rules: under 1200 characters total. Only durable information, never process narration. If the conversation is trivial, answer with one short line."""
+
 ORCH_SYSTEM = """You are iron's orchestrator. Decompose the user's goal into independent parallel tasks.
 Prefer many small agents over one large agent. Each task must be self-contained.
 Never exceed depth 2 for descendants (you are depth 0; workers are 1; their children are 2).
@@ -475,3 +485,69 @@ class Engine:
         items = [r.snapshot() for r in self.runs.values()]
         items.sort(key=lambda r: r.created_at, reverse=True)
         return items[:limit]
+
+    def schedule_summary(self, chat_id: str, project_id: str) -> None:
+        """Fire-and-forget rolling summary refresh after a run completes."""
+        if not chat_id or not self.store:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(self._summarize(chat_id))
+
+    def _summary_turns(self, chat: dict[str, Any]) -> list[str]:
+        rows: list[str] = []
+        for msg in chat.get("messages", [])[-14:]:
+            role = msg.get("role")
+            body = (msg.get("content") or "").strip()
+            if not body:
+                continue
+            if role == "user":
+                rows.append(f"User: {body[:800]}")
+            elif role == "assistant":
+                rows.append(f"Iron: {body[:800]}")
+        return rows
+
+    async def _summarize(self, chat_id: str) -> None:
+        try:
+            chat = self.store.chat(chat_id)
+            if not chat:
+                return
+            mem = chat.get("memory") or {}
+            old = (mem.get("summary") or "").strip()
+            last_ts = int(mem.get("updated_at") or 0)
+            newer = [m for m in chat.get("messages", []) if m.get("ts", 0) > last_ts and (m.get("content") or "").strip()]
+            if not newer and old:
+                return
+            turns = self._summary_turns(chat)
+            if not turns and not old:
+                return
+            model = (self.settings.summary_model or "").strip() or "gemma4:e2b"
+            text = await self._call_summary(model, old, turns)
+            if text:
+                self.store.update_chat_memory(chat_id, text)
+        except Exception:
+            pass
+
+    async def _call_summary(self, model: str, old: str, turns: list[str]) -> str:
+        user = (f"Existing memory:\n{old}\n\n" if old else "") + "New conversation:\n" + "\n".join(turns)
+        messages = [
+            {"role": "system", "content": SUMMARY_SYSTEM},
+            {"role": "user", "content": user[:12000]},
+        ]
+        for candidate in (model, self.settings.resolved_model()):
+            parts: list[str] = []
+            try:
+                async for chunk in self.client.stream_chat(model=candidate, messages=messages, num_ctx=8192, temperature=0.2):
+                    delta = extract_delta(chunk)
+                    if delta["content"]:
+                        parts.append(delta["content"])
+            except Exception:
+                if candidate == model and candidate != self.settings.resolved_model():
+                    continue
+                return ""
+            text = "".join(parts).strip()
+            if text:
+                return text
+        return ""
