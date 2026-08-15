@@ -107,6 +107,10 @@ export type Settings = {
   max_orchestrator_rounds: number;
   ctx_target: number;
   summary_model: string;
+  window_w: number;
+  window_h: number;
+  window_x: number;
+  window_y: number;
   workspace: string;
   theme: string;
 };

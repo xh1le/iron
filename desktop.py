@@ -6,13 +6,29 @@ import webbrowser
 from pathlib import Path
 
 
+def _geometry_args() -> list[str]:
+    """Restore the saved window size/position (0 = auto)."""
+    try:
+        from backend.config import load_settings
+
+        s = load_settings()
+    except Exception:
+        return []
+    args: list[str] = []
+    w, h = s.window_w or 1440, s.window_h or 920
+    args.append(f"--window-size={w},{h}")
+    if s.window_x >= 0 and s.window_y >= 0:
+        args.append(f"--window-position={s.window_x},{s.window_y}")
+    return args
+
+
 def _browser_cmd(url: str) -> list[str] | None:
     for name in ("chrome", "msedge", "chromium", "firefox"):
         p = shutil.which(name)
         if p:
             if "firefox" in name:
                 return [p, "-new-window", url]
-            return [p, f"--app={url}", "--window-size=1440,920"]
+            return [p, f"--app={url}", *_geometry_args()]
     for p in [
         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
@@ -21,7 +37,7 @@ def _browser_cmd(url: str) -> list[str] | None:
         r"C:\Program Files\Mozilla Firefox\firefox.exe",
     ]:
         if Path(p).exists():
-            return [p, f"--app={url}"] if "Firefox" not in p else [p, "-new-window", url]
+            return [p, f"--app={url}", *_geometry_args()] if "Firefox" not in p else [p, "-new-window", url]
     return None
 
 

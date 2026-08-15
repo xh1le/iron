@@ -78,6 +78,10 @@ class SettingsIn(BaseModel):
     max_orchestrator_rounds: int | None = None
     ctx_target: float | None = None
     summary_model: str | None = None
+    window_w: int | None = None
+    window_h: int | None = None
+    window_x: int | None = None
+    window_y: int | None = None
     workspace: str | None = None
     theme: str | None = None
 

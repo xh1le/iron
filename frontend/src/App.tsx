@@ -26,16 +26,35 @@ const SUGGESTIONS = [
 
 let apiToken = "";
 
+async function fetchToken() {
+  try {
+    const res = await fetch("/api/bootstrap");
+    if (!res.ok) return;
+    const data = (await res.json()) as { token?: string };
+    if (data.token) apiToken = data.token;
+  } catch {
+    /* old backend without tokens — requests proceed without a header */
+  }
+}
+
 const api = {
   async json<T>(path: string, init?: RequestInit): Promise<T> {
-    const res = await fetch(path, {
-      ...init,
-      headers: {
-        "Content-Type": "application/json",
-        ...(apiToken ? { "X-Iron-Token": apiToken } : {}),
-        ...(init?.headers || {}),
-      },
-    });
+    if (!apiToken) await fetchToken();
+    const headers = {
+      "Content-Type": "application/json",
+      ...(apiToken ? { "X-Iron-Token": apiToken } : {}),
+      ...(init?.headers || {}),
+    };
+    const res = await fetch(path, { ...init, headers });
+    if (res.status === 403 && apiToken) {
+      // server restarted with a fresh token — re-fetch and retry once
+      await fetchToken();
+      if (apiToken) {
+        const retry = await fetch(path, { ...init, headers: { ...headers, "X-Iron-Token": apiToken } });
+        if (!retry.ok) throw new Error(`request failed (${retry.status})`);
+        return retry.json() as Promise<T>;
+      }
+    }
     if (!res.ok) throw new Error(`request failed (${res.status})`);
     return res.json() as Promise<T>;
   },
@@ -141,8 +160,6 @@ export function App() {
   useEffect(() => {
     (async () => {
       try {
-        const b = await api.json<{ token: string }>("/api/bootstrap");
-        apiToken = b.token || "";
         const s = await api.json<Settings>("/api/settings");
         setSettings(s);
         await loadModels(3);
@@ -171,6 +188,7 @@ export function App() {
     let timer: number | undefined;
     let stopped = false;
     const connect = () => {
+      if (!apiToken) void fetchToken();
       const proto = location.protocol === "https:" ? "wss" : "ws";
       ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(apiToken)}`);
       ws.onopen = () => {
@@ -235,6 +253,36 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [activeRun]);
 
+  useEffect(() => {
+    const save = () => {
+      const w = window.outerWidth;
+      const h = window.outerHeight;
+      if (!w || !h) return;
+      const x = window.screenX;
+      const y = window.screenY;
+      api.json("/api/settings", {
+        method: "PUT",
+        body: JSON.stringify({ window_w: w, window_h: h, window_x: x, window_y: y }),
+      }).catch(() => { /* offline — geometry persists next launch */ });
+    };
+    let timer: number | undefined;
+    const onResize = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(save, 800);
+    };
+    const onHide = () => save();
+    window.addEventListener("resize", onResize);
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", onHide);
+    save();
+    return () => {
+      window.removeEventListener("resize", onResize);
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", onHide);
+      if (timer) window.clearTimeout(timer);
+    };
+  }, []);
+
   async function refreshChats(pid = projectId) {
     if (!pid) return;
     try {
@@ -247,9 +295,15 @@ export function App() {
 
   async function resync() {
     try {
-      if (!apiToken) {
-        const b = await api.json<{ token: string }>("/api/bootstrap");
-        apiToken = b.token || "";
+      if (!settings) {
+        const s = await api.json<Settings>("/api/settings");
+        setSettings(s);
+      }
+      if (projects.length === 0) {
+        const p = await api.json<{ projects: Project[]; active_project_id?: string }>("/api/projects");
+        setProjects(p.projects || []);
+        const pid = p.active_project_id || p.projects?.[0]?.id || "";
+        if (!projectIdRef.current && pid) setProjectId(pid);
       }
       const r = await api.json<{ runs: RunSnapshot[] }>("/api/runs");
       setRuns((prev) => {

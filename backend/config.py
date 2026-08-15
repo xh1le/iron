@@ -35,6 +35,10 @@ class Settings(BaseModel):
     max_orchestrator_rounds: int = 6
     ctx_target: float = 0.6
     summary_model: str = ""
+    window_w: int = 0
+    window_h: int = 0
+    window_x: int = -1
+    window_y: int = -1
     workspace: str = str(default_workspace())
     theme: str = "iron"
 
