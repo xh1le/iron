@@ -111,9 +111,7 @@ export function App() {
       try {
         const s = await api.json<Settings>("/api/settings");
         setSettings(s);
-        const m = await api.json<{ models: { name: string }[]; error?: string }>("/api/models");
-        setModels((m.models || []).map((x) => x.name));
-        setModelError(m.error || "");
+        await loadModels(3);
         const p = await api.json<{ projects: Project[]; active_project_id?: string }>("/api/projects");
         setProjects(p.projects || []);
         const pid = p.active_project_id || p.projects?.[0]?.id || "";
@@ -171,6 +169,25 @@ export function App() {
     if (!pid) return;
     const c = await api.json<{ chats: Chat[] }>(`/api/chats?project_id=${pid}`);
     setChats(c.chats || []);
+  }
+
+  async function loadModels(retries = 0) {
+    for (let i = 0; i <= retries; i++) {
+      try {
+        const m = await api.json<{ models: { name: string }[]; error?: string }>("/api/models");
+        const names = (m.models || []).map((x) => x.name);
+        if (names.length > 0) {
+          setModels(names);
+          setModelError(m.error || "");
+          return names;
+        }
+        setModelError(m.error || "no models found — is ollama running?");
+      } catch {
+        setModelError("can't reach ollama");
+      }
+      if (i < retries) await new Promise((r) => window.setTimeout(r, 1500));
+    }
+    return [];
   }
 
   async function switchProject(id: string) {
@@ -524,7 +541,7 @@ export function App() {
             +
           </button>
           <input ref={fileRef} type="file" multiple hidden onChange={(e) => onPickFiles(e.target.files)} />
-          <ModelPicker value={settings?.model || ""} options={models} onChange={(v) => saveSettings({ model: v })} />
+          <ModelPicker value={settings?.model || ""} options={models} onChange={(v) => saveSettings({ model: v })} onOpen={() => loadModels(1)} />
         </div>
         <div className="actions">
           {activeRun && (activeRun.status === "running" || activeRun.status === "needs_input") && (
@@ -705,11 +722,11 @@ export function App() {
                   <h3>models</h3>
                   <div className="setting-field">
                     <span>worker</span>
-                    <ModelPicker value={settings.model} options={models} onChange={(v) => saveSettings({ model: v })} placeholder="auto" />
+                    <ModelPicker value={settings.model} options={models} onChange={(v) => saveSettings({ model: v })} placeholder="auto" onOpen={() => loadModels(1)} />
                   </div>
                   <div className="setting-field">
                     <span>orchestrator</span>
-                    <ModelPicker value={settings.orchestrator_model} options={models} onChange={(v) => saveSettings({ orchestrator_model: v })} placeholder="same as worker" />
+                    <ModelPicker value={settings.orchestrator_model} options={models} onChange={(v) => saveSettings({ orchestrator_model: v })} placeholder="same as worker" onOpen={() => loadModels(1)} />
                   </div>
                   <label>
                     ollama host

@@ -6,9 +6,10 @@ type Props = {
   options: string[];
   onChange: (v: string) => void;
   placeholder?: string;
+  onOpen?: () => void;
 };
 
-export default function ModelPicker({ value, options, onChange, placeholder = "auto" }: Props) {
+export default function ModelPicker({ value, options, onChange, placeholder = "auto", onOpen }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number; width: number } | null>(null);
@@ -76,12 +77,13 @@ export default function ModelPicker({ value, options, onChange, placeholder = "a
           </button>
         );
       })}
+      {options.length === 0 && <div className="model-empty">no models — is ollama running?</div>}
     </div>
   ) : null;
 
   return (
     <div ref={ref} className={`model-picker ${open ? "open" : ""}`}>
-      <button type="button" className="model-trigger" onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open}>
+      <button type="button" className="model-trigger" onClick={() => { setOpen((v) => !v); if (!open) onOpen?.(); }} aria-haspopup="listbox" aria-expanded={open}>
         <span className="dot-mini" aria-hidden="true" />
         <span className="model-label">{value || placeholder}</span>
         <span className={`chev ${open ? "up" : ""}`} aria-hidden="true">▾</span>

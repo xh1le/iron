@@ -365,6 +365,7 @@ code, .mono, kbd { font-family: "IBM Plex Mono", ui-monospace, monospace; }
 .model-option:hover { background: rgba(255,255,255,0.08); color: var(--text); }
 .model-option.active { background: rgba(255,255,255,0.1); color: #fff; }
 .model-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-empty { padding: 8px 9px; font-size: 11px; color: var(--faint); }
 .check { color: var(--good); font-size: 11px; }
 
 .dot-mini { width: 6px; height: 6px; border-radius: 50%; background: var(--good); box-shadow: 0 0 8px var(--good); flex-shrink: 0; animation: pulse 2.4s ease-in-out infinite; }
