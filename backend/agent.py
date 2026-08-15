@@ -5,6 +5,7 @@ import uuid
 from typing import Any
 
 from .config import Settings
+from .context import ctx_budget, compact_messages, dedupe_tool_result, estimate_messages, estimate_tokens
 from .events import EventBus, now_ms
 from .memory import SharedMemory
 from .models import AgentSnapshot
@@ -65,6 +66,8 @@ class Agent:
         self.status = "queued"
         self.steps = 0
         self.tokens = 0
+        self.prompt_tokens = 0
+        self.ctx_window = 0
         self.result = ""
         self.error = ""
         self.created_at = now_ms()
@@ -82,6 +85,8 @@ class Agent:
             model=self.model,
             steps=self.steps,
             tokens=self.tokens,
+            prompt_tokens=self.prompt_tokens,
+            ctx_window=self.ctx_window,
             result=self.result,
             error=self.error,
             created_at=self.created_at,
@@ -191,11 +196,13 @@ class Agent:
                         await self._emit("agent.tool", tool=name, args=args, phase="start")
                         result = await self.tools.call(name, args, ctx)
                         clipped = result if len(result) < 12_000 else result[:12_000] + "\n… [truncated]"
+                        clipped = dedupe_tool_result(messages, name, clipped)
                         await self._emit("agent.tool", tool=name, args=args, phase="end", result=clipped)
                         messages.append(
                             {
                                 "role": "tool",
                                 "tool_call_id": call_id,
+                                "_tool": name,
                                 "content": clipped,
                             }
                         )
@@ -219,36 +226,28 @@ class Agent:
             await self._emit("agent.error", error=self.error)
             return self.result
 
+    def _ctx_budget(self) -> int:
+        num_ctx = min(self.settings.ctx(), 65536 if self.depth else self.settings.ctx())
+        return ctx_budget(num_ctx, self.settings.ctx_target)
+
     def _compact(self, messages: list[dict[str, Any]]) -> None:
-        """Keep the prompt small so local models stay fast."""
-        budget = 14_000
-        for msg in messages[2:-4]:
-            if msg.get("role") == "tool" and isinstance(msg.get("content"), str) and len(msg["content"]) > 1200:
-                msg["content"] = msg["content"][:1200] + "\n… [compacted]"
-        total = sum(len(str(m.get("content") or "")) for m in messages)
-        while total > budget and len(messages) > 6:
-            dropped = messages.pop(2)
-            total -= len(str(dropped.get("content") or ""))
-            if dropped.get("role") == "assistant":
-                call_ids = {c.get("id") for c in (dropped.get("tool_calls") or []) if c.get("id")}
-                while call_ids and len(messages) > 6 and messages[2].get("role") == "tool":
-                    m = messages[2]
-                    if m.get("tool_call_id") not in call_ids:
-                        break
-                    messages.pop(2)
-                    total -= len(str(m.get("content") or ""))
+        compact_messages(messages, self._ctx_budget())
 
     async def _infer(self, messages: list[dict[str, Any]], schemas: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
         acc_calls: dict[int, dict[str, Any]] = {}
         parts: list[str] = []
         think: list[str] = []
+        num_ctx = min(self.settings.ctx(), 65536 if self.depth else self.settings.ctx())
+        prompt_est = estimate_messages(messages)
+        out_est = 0
+        last_emit = 0
         try:
             async with self.limiter:
                 async for chunk in self.client.stream_chat(
                     model=self.model,
                     messages=messages,
                     tools=schemas,
-                    num_ctx=min(self.settings.ctx(), 65536 if self.depth else self.settings.ctx()),
+                    num_ctx=num_ctx,
                     cloud=self.cloud,
                 ):
                     if self.cancel.is_set():
@@ -257,11 +256,17 @@ class Agent:
                     if delta["reasoning"]:
                         think.append(delta["reasoning"])
                         await self._emit("agent.think", text=delta["reasoning"])
+                        out_est += estimate_tokens(delta["reasoning"])
                     if delta["content"]:
                         parts.append(delta["content"])
                         await self._emit("agent.token", text=delta["content"])
+                        out_est += estimate_tokens(delta["content"])
                     if delta["tool_calls"]:
                         merge_tool_call_deltas(acc_calls, delta["tool_calls"])
+                        out_est += 12 * len(delta["tool_calls"])
+                    if out_est - last_emit >= 256:
+                        last_emit = out_est
+                        await self._emit_usage(prompt_est + out_est, num_ctx, estimated=True)
                     usage = delta.get("usage") or {}
                     total = usage.get("total_tokens")
                     if total:
@@ -273,4 +278,22 @@ class Agent:
         text = "".join(parts)
         if not calls:
             calls = extract_text_tool_calls(text, set(self._tool_names()))
+        final_prompt = max(prompt_est + out_est, (self.tokens or 0))
+        if final_prompt > self.prompt_tokens:
+            self.prompt_tokens = final_prompt
+        if num_ctx > self.ctx_window:
+            self.ctx_window = num_ctx
+        await self._emit_usage(final_prompt, num_ctx)
         return text, calls
+
+    async def _emit_usage(self, prompt_tokens: int, num_ctx: int, estimated: bool = False) -> None:
+        await self.bus.emit(
+            {
+                "type": "agent.usage",
+                "run_id": self.run_id,
+                "agent_id": self.id,
+                "prompt_tokens": int(prompt_tokens),
+                "num_ctx": int(num_ctx),
+                "estimated": estimated,
+            }
+        )

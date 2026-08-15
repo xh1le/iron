@@ -15,6 +15,7 @@ import type {
   RunSnapshot,
   Settings,
   Trace,
+  Usage,
 } from "./types";
 
 const SUGGESTIONS = [
@@ -64,6 +65,17 @@ function prettySize(n: number) {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function fmtTok(n: number) {
+  if (!n) return "0";
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
+
+function ctxPct(u?: Usage) {
+  if (!u || !u.ctx) return 0;
+  return Math.min(100, Math.round((u.prompt / u.ctx) * 100));
+}
+
 export function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [models, setModels] = useState<string[]>([]);
@@ -93,6 +105,8 @@ export function App() {
   const [agents, setAgents] = useState<Record<string, AgentSnapshot[]>>({});
   const [asks, setAsks] = useState<Record<string, string>>({});
   const [runs, setRuns] = useState<Record<string, RunSnapshot>>({});
+  const [usage, setUsage] = useState<Record<string, Usage>>({});
+  const [agentUsage, setAgentUsage] = useState<Record<string, Usage>>({});
   const streamRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -118,6 +132,11 @@ export function App() {
   const activeAgents = activeRun ? agents[activeRun.id] || activeRun.agents || [] : [];
   const running = activeAgents.filter((a) => !["done", "failed", "cancelled"].includes(a.status)).length;
   const runActive = !!activeRun && ["running", "queued", "needs_input"].includes(activeRun.status);
+  const lastAssistant = chat?.messages.filter((m) => m.role === "assistant").reverse()[0];
+  const gaugeUsage: Usage | undefined = (lastRunId ? usage[lastRunId] : undefined) || activeRun?.usage || lastAssistant?.usage;
+  const gaugePct = ctxPct(gaugeUsage);
+  const goalEst = Math.round((goal.trim().length || 0) / 3.2);
+  const goalHot = goalEst > (settings?.num_ctx || 65536) * 0.6;
 
   useEffect(() => {
     (async () => {
@@ -350,6 +369,20 @@ export function App() {
       setBusy(false);
     }
     if (event.type === "run.ask" && runId) setAsks((p) => ({ ...p, [runId]: event.question || "Need input" }));
+    if (event.type === "run.usage" && runId && event.num_ctx) {
+      setUsage((prev) => {
+        const cur = prev[runId];
+        const prompt = Math.max(cur?.prompt || 0, event.prompt_tokens || 0);
+        return { ...prev, [runId]: { prompt, ctx: event.num_ctx || cur?.ctx || 0 } };
+      });
+    }
+    if (event.type === "agent.usage" && event.agent_id && event.num_ctx) {
+      setAgentUsage((prev) => {
+        const cur = prev[event.agent_id!];
+        const prompt = Math.max(cur?.prompt || 0, event.prompt_tokens || 0);
+        return { ...prev, [event.agent_id!]: { prompt, ctx: event.num_ctx || cur?.ctx || 0 } };
+      });
+    }
     if (event.type === "agent.spawn" && event.agent && runId) upsertAgent(runId, event.agent);
     if (event.type === "agent.status" && event.agent && runId) upsertAgent(runId, event.agent);
     if (event.agent_id && event.type === "agent.think") pushTrace(event.agent_id, "think", event.text || "");
@@ -693,6 +726,9 @@ export function App() {
           <ModelPicker value={settings?.model || ""} options={models} onChange={(v) => saveSettings({ model: v })} onOpen={() => loadModels(1)} />
         </div>
         <div className="actions">
+          {goal.trim() && (
+            <span className={`est mono ${goalHot ? "hot" : ""}`}>~{fmtTok(goalEst)}</span>
+          )}
           {activeRun && (activeRun.status === "running" || activeRun.status === "needs_input") && (
             <button className="ghost danger" onClick={cancel}>
               stop
@@ -905,6 +941,20 @@ export function App() {
                   </label>
                 </section>
                 <section>
+                  <h3>context & memory</h3>
+                  <label>
+                    context target %
+                    <input type="number" min={10} max={95} value={Math.round(settings.ctx_target * 100)} onChange={(e) => saveSettings({ ctx_target: Math.max(0.1, Math.min(0.95, (Number(e.target.value) || 60) / 100)) })} />
+                  </label>
+                  <label>
+                    summary model
+                    <input value={settings.summary_model} placeholder="auto (gemma4:e2b)" onChange={(e) => saveSettings({ summary_model: e.target.value })} />
+                  </label>
+                  <div className="quiet">
+                    runs remember what their agents write to shared memory, per project — and chat history is compacted into rolling summaries to keep the context window small.
+                  </div>
+                </section>
+                <section>
                   <h3>cloud orchestrator</h3>
                   <label className="toggle">
                     <input
@@ -954,28 +1004,37 @@ export function App() {
             {chat && (
               <>
                 <header className="runbar">
-                  <div>
-                    <div className="kicker">
-                      <span>{project?.name || "home"}</span>
-                      <span className="mono">{fmtDay(chat.updated_at)}</span>
-                    </div>
-                    {renaming ? (
-                      <div className="rename-row">
-                        <input
-                          value={renameText}
-                          onChange={(e) => setRenameText(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") renameChat(renameText.trim());
-                            if (e.key === "Escape") setRenaming(false);
-                          }}
-                          autoFocus
-                        />
-                        <button type="button" className="ghost" onClick={() => renameChat(renameText.trim())}>save</button>
+                  <div className="runbar-head">
+                    <div>
+                      <div className="kicker">
+                        <span>{project?.name || "home"}</span>
+                        <span className="mono">{fmtDay(chat.updated_at)}</span>
                       </div>
-                    ) : (
-                      <div className="title-row">
-                        <h2>{chat.title || "New chat"}</h2>
-                        <button type="button" className="icon-mini" aria-label="rename chat" title="rename" onClick={() => { setRenaming(true); setRenameText(chat.title || ""); }}>✎</button>
+                      {renaming ? (
+                        <div className="rename-row">
+                          <input
+                            value={renameText}
+                            onChange={(e) => setRenameText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") renameChat(renameText.trim());
+                              if (e.key === "Escape") setRenaming(false);
+                            }}
+                            autoFocus
+                          />
+                          <button type="button" className="ghost" onClick={() => renameChat(renameText.trim())}>save</button>
+                        </div>
+                      ) : (
+                        <div className="title-row">
+                          <h2>{chat.title || "New chat"}</h2>
+                          <button type="button" className="icon-mini" aria-label="rename chat" title="rename" onClick={() => { setRenaming(true); setRenameText(chat.title || ""); }}>✎</button>
+                        </div>
+                      )}
+                    </div>
+                    {gaugeUsage && (
+                      <div className={`ctx-meter ${gaugePct >= 85 ? "hot" : gaugePct >= 60 ? "warn" : "ok"}`} title={`${gaugeUsage.prompt} of ${gaugeUsage.ctx} tokens`}>
+                        <span className="ctx-label mono">ctx {gaugePct}%</span>
+                        <span className="ctx-bar"><i style={{ width: `${Math.max(2, gaugePct)}%` }} /></span>
+                        <span className="ctx-num mono">{fmtTok(gaugeUsage.prompt)}/{fmtTok(gaugeUsage.ctx)}</span>
                       </div>
                     )}
                   </div>
@@ -1016,7 +1075,12 @@ export function App() {
                   <span className={`pill ${a.status}`}>{a.status}</span>
                 </div>
                 <div className="goal">{a.goal}</div>
-                <div className="stat">d{a.depth} · step {a.steps}</div>
+                <div className="stat">
+                  d{a.depth} · step {a.steps}
+                  {(a.prompt_tokens > 0 && a.ctx_window > 0) && (
+                    <> · ctx {Math.min(100, Math.round((a.prompt_tokens / a.ctx_window) * 100))}%</>
+                  )}
+                </div>
                 <div className="trace">
                   {(traces[a.id] || []).map((t) => (
                     <div

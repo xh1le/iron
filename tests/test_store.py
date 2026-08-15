@@ -31,3 +31,33 @@ def test_edit_delete_message(tmp_path: Path, monkeypatch):
     assert store.chat(chat["id"])["messages"][0]["content"] == "changed"
     assert store.delete_message(chat["id"], mid) is not None
     assert store.chat(chat["id"])["messages"] == []
+
+
+def test_project_memory_roundtrip(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("backend.store.iron_home", lambda: tmp_path)
+    store = Store()
+    pid = store.projects()[0]["id"]
+    store.memory_put(pid, "api", "POST /api/runs", run_id="run_1")
+    store.memory_put_batch(pid, {"file": "src/app.py", "dep": "fastapi"}, run_id="run_1")
+    assert store.memory_get(pid, "api") == "POST /api/runs"
+    all_mem = store.memory_all(pid)
+    assert all_mem["file"] == "src/app.py"
+    assert all_mem["dep"] == "fastapi"
+    assert store.memory_all("nope") == {}
+    reopened = Store()
+    assert reopened.memory_get(pid, "api") == "POST /api/runs"
+
+
+def test_chat_memory_and_finish_run_usage(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("backend.store.iron_home", lambda: tmp_path)
+    store = Store()
+    chat = store.create_chat(store.projects()[0]["id"], "New chat")
+    assert chat["memory"] == {"summary": "", "updated_at": 0}
+    store.update_chat_memory(chat["id"], "decided to use fastapi")
+    assert store.chat(chat["id"])["memory"]["summary"] == "decided to use fastapi"
+    store.add_message(chat["id"], {"role": "user", "content": "q"})
+    store.add_message(chat["id"], {"role": "assistant", "content": "", "run_id": "run_x"})
+    store.finish_run("run_x", "answer", "done", usage={"prompt": 1234, "ctx": 65536})
+    msg = store.chat(chat["id"])["messages"][1]
+    assert msg["usage"] == {"prompt": 1234, "ctx": 65536}
+    assert msg["content"] == "answer"

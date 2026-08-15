@@ -38,6 +38,8 @@ class AgentSnapshot(BaseModel):
     model: str = ""
     steps: int = 0
     tokens: int = 0
+    prompt_tokens: int = 0
+    ctx_window: int = 0
     result: str = ""
     error: str = ""
     created_at: int = 0
@@ -55,6 +57,7 @@ class RunSnapshot(BaseModel):
     error: str = ""
     chat_id: str = ""
     project_id: str = ""
+    usage: dict[str, int] = Field(default_factory=dict)
     agents: list[AgentSnapshot] = Field(default_factory=list)
 
 
@@ -73,6 +76,8 @@ class SettingsIn(BaseModel):
     max_depth: int | None = None
     max_agent_steps: int | None = None
     max_orchestrator_rounds: int | None = None
+    ctx_target: float | None = None
+    summary_model: str | None = None
     workspace: str | None = None
     theme: str | None = None
 

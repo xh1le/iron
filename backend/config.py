@@ -33,6 +33,8 @@ class Settings(BaseModel):
     max_depth: int = 2
     max_agent_steps: int = 24
     max_orchestrator_rounds: int = 6
+    ctx_target: float = 0.6
+    summary_model: str = ""
     workspace: str = str(default_workspace())
     theme: str = "iron"
 

@@ -21,6 +21,8 @@ export type AgentSnapshot = {
   model: string;
   steps: number;
   tokens: number;
+  prompt_tokens: number;
+  ctx_window: number;
   result: string;
   error: string;
   created_at: number;
@@ -38,9 +40,12 @@ export type RunSnapshot = {
   error: string;
   chat_id?: string;
   project_id?: string;
+  usage?: { prompt: number; ctx: number };
   agents: AgentSnapshot[];
   chat?: Chat;
 };
+
+export type Usage = { prompt: number; ctx: number };
 
 export type Attachment = { name: string; path: string; size: number };
 
@@ -51,6 +56,7 @@ export type Message = {
   attachments?: Attachment[];
   run_id?: string | null;
   status?: string;
+  usage?: Usage;
   ts: number;
 };
 
@@ -99,6 +105,8 @@ export type Settings = {
   max_depth: number;
   max_agent_steps: number;
   max_orchestrator_rounds: number;
+  ctx_target: number;
+  summary_model: string;
   workspace: string;
   theme: string;
 };
@@ -122,4 +130,7 @@ export type IronEvent = {
   agent?: AgentSnapshot;
   run?: RunSnapshot;
   tasks?: { title: string; goal: string }[];
+  prompt_tokens?: number;
+  num_ctx?: number;
+  estimated?: boolean;
 };

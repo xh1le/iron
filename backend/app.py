@@ -27,7 +27,7 @@ def create_app() -> FastAPI:
     settings = load_settings()
     bus = EventBus()
     store = Store()
-    engine = Engine(settings, bus, builtin_tools())
+    engine = Engine(settings, bus, builtin_tools(), store=store)
     token = secrets.token_urlsafe(24)
     print(f"iron: local token {token}", file=sys.stderr)
 
@@ -75,7 +75,9 @@ def create_app() -> FastAPI:
     def persist_run(run: Run) -> None:
         if not run.chat_id:
             return
-        store.finish_run(run.id, run.result or run.error, run.status)
+        store.finish_run(run.id, run.result or run.error, run.status, usage=run.usage_snapshot())
+        if run.project_id:
+            store.memory_put_batch(run.project_id, run.memory.all(), run.id)
 
     @app.get("/api/health")
     async def health() -> dict[str, Any]:
@@ -199,7 +201,7 @@ def create_app() -> FastAPI:
             chat_id = created["id"]
         elif not store.chat(chat_id):
             return {"error": "chat not found"}
-        extra = store.context_block(chat_id)
+        extra = store.context_block(chat_id, limit=4)
         files = body.attachments or []
         if files:
             listed = "\n".join(f"- {f.get('name')}: {f.get('path')}" for f in files)

@@ -74,19 +74,49 @@ def test_parallel_workers(tmp_path):
             model="fake",
             max_concurrent=8,
         )
-        engine = Engine(settings, EventBus(), builtin_tools())
+        bus = EventBus()
+        engine = Engine(settings, bus, builtin_tools())
         engine.client = FakeClient()  # type: ignore[assignment]
         run = await engine.create_run("make two files")
         assert run.task is not None
         await run.task
-        return run
+        return run, bus
 
-    run = asyncio.run(go())
+    run, bus = asyncio.run(go())
     assert run.status == "done"
     assert "alpha" in run.result
     assert len(run.agents) == 2
     assert (tmp_path / "alpha.txt").read_text(encoding="utf-8") == "ALPHA"
     assert (tmp_path / "beta.txt").read_text(encoding="utf-8") == "BETA"
+
+
+def test_usage_events_emitted(tmp_path):
+    async def go() -> list[dict]:
+        settings = Settings(workspace=str(tmp_path), max_agent_steps=4, max_orchestrator_rounds=3, model="fake")
+        bus = EventBus()
+        events: list[dict] = []
+        async def collect() -> None:
+            queue = await bus.subscribe()
+            for _ in range(200):
+                events.append(await queue.get())
+        engine = Engine(settings, bus, builtin_tools())
+        engine.client = FakeClient()  # type: ignore[assignment]
+        collector = asyncio.create_task(collect())
+        run = await engine.create_run("make two files")
+        assert run.task is not None
+        await run.task
+        collector.cancel()
+        await asyncio.gather(collector, return_exceptions=True)
+        return events
+
+    events = asyncio.run(go())
+    kinds = {e["type"] for e in events}
+    assert "run.usage" in kinds
+    assert "agent.usage" in kinds
+    for e in events:
+        if e["type"] in {"run.usage", "agent.usage"}:
+            assert e["num_ctx"] > 0
+            assert e["prompt_tokens"] > 0
 
 
 def test_depth_limit(tmp_path):

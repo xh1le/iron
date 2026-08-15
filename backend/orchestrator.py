@@ -7,6 +7,7 @@ from typing import Any
 
 from .agent import Agent
 from .config import Settings
+from .context import ctx_budget, compact_messages, estimate_messages, estimate_tokens
 from .events import EventBus, now_ms
 from .memory import SharedMemory
 from .models import RunSnapshot
@@ -51,6 +52,7 @@ class Run:
         model: str,
         orch_model: str,
         cloud: bool,
+        store: Any = None,
     ) -> None:
         self.id = "run_" + uuid.uuid4().hex[:10]
         self.goal = goal
@@ -62,6 +64,7 @@ class Run:
         self.model = model
         self.orch_model = orch_model
         self.cloud = cloud
+        self.store = store
         self.status = "queued"
         self.result = ""
         self.error = ""
@@ -78,6 +81,11 @@ class Run:
         self.project_id = ""
         self.extra_context = ""
         self.on_done: Any = None
+        self.peak_prompt = 0
+        self.ctx_window = 0
+
+    def usage_snapshot(self) -> dict[str, int]:
+        return {"prompt": self.peak_prompt, "ctx": self.ctx_window}
 
     def snapshot(self) -> RunSnapshot:
         agents = [a.snapshot() for a in self.agents.values()]
@@ -93,6 +101,7 @@ class Run:
             error=self.error,
             chat_id=self.chat_id,
             project_id=self.project_id,
+            usage=self.usage_snapshot(),
             agents=agents,
         )
 
@@ -140,13 +149,32 @@ class Run:
         )
         self.agents[agent.id] = agent
         await self._emit("agent.spawn", agent=agent.snapshot().model_dump())
-        return await agent.run()
+        result = await agent.run()
+        if agent.prompt_tokens > self.peak_prompt:
+            self.peak_prompt = agent.prompt_tokens
+        if agent.ctx_window > self.ctx_window:
+            self.ctx_window = agent.ctx_window
+        return result
 
     async def start(self) -> None:
         self.task = asyncio.create_task(self._loop(), name=f"iron-run-{self.id}")
 
     async def _loop(self) -> None:
         await self._set("running")
+        memory_block = ""
+        if self.store is not None:
+            from .context import build_memory_block
+
+            try:
+                memory_block = await build_memory_block(
+                    self.store,
+                    self.project_id,
+                    self.chat_id,
+                    self.goal,
+                    int(self.settings.ctx() * max(0.1, min(0.95, self.settings.ctx_target)) * 0.4),
+                )
+            except Exception:
+                memory_block = ""
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": ORCH_SYSTEM},
             {
@@ -155,6 +183,7 @@ class Run:
                     f"Workspace: {self.workspace}\n"
                     f"Max concurrent workers: {self.settings.max_concurrent}\n"
                     + (f"\nEarlier conversation:\n{self.extra_context}\n" if self.extra_context else "")
+                    + (f"\n{memory_block}\n" if memory_block else "")
                     + f"Goal:\n{self.goal}"
                 ),
             },
@@ -202,12 +231,14 @@ class Run:
         ]
 
         try:
+            budget = ctx_budget(self.settings.ctx(), self.settings.ctx_target)
             for _round in range(1, self.settings.max_orchestrator_rounds + 1):
                 if self.cancel.is_set():
                     await self._set("cancelled")
                     self.result = "cancelled"
                     self._persist()
                     return
+                compact_messages(messages, budget)
                 content, tool_calls = await self._infer(messages, schemas)
                 if self.cancel.is_set():
                     await self._set("cancelled")
@@ -334,13 +365,17 @@ class Run:
     async def _infer(self, messages: list[dict[str, Any]], schemas: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
         acc_calls: dict[int, dict[str, Any]] = {}
         parts: list[str] = []
+        num_ctx = self.settings.ctx()
+        prompt_est = estimate_messages(messages)
+        out_est = 0
+        last_emit = 0
         try:
             async with self.limiter:
                 async for chunk in self.client.stream_chat(
                     model=self.orch_model,
                     messages=messages,
                     tools=schemas,
-                    num_ctx=self.settings.ctx(),
+                    num_ctx=num_ctx,
                     cloud=self.cloud,
                 ):
                     if self.cancel.is_set():
@@ -348,11 +383,17 @@ class Run:
                     delta = extract_delta(chunk)
                     if delta["reasoning"]:
                         await self._emit("run.think", text=delta["reasoning"])
+                        out_est += estimate_tokens(delta["reasoning"])
                     if delta["content"]:
                         parts.append(delta["content"])
                         await self._emit("run.token", text=delta["content"])
+                        out_est += estimate_tokens(delta["content"])
                     if delta["tool_calls"]:
                         merge_tool_call_deltas(acc_calls, delta["tool_calls"])
+                        out_est += 12 * len(delta["tool_calls"])
+                    if out_est - last_emit >= 256:
+                        last_emit = out_est
+                        await self._emit_usage(prompt_est + out_est, num_ctx, estimated=True)
         except ModelError as exc:
             raise RuntimeError(str(exc)) from exc
         calls = [acc_calls[i] for i in sorted(acc_calls)]
@@ -360,14 +401,32 @@ class Run:
         text = "".join(parts)
         if not calls:
             calls = extract_text_tool_calls(text, {"spawn_task", "finish", "ask_user", "memory_get", "memory_put"})
+        final_prompt = max(prompt_est + out_est, self.peak_prompt)
+        if final_prompt > self.peak_prompt:
+            self.peak_prompt = final_prompt
+        if num_ctx > self.ctx_window:
+            self.ctx_window = num_ctx
+        await self._emit_usage(final_prompt, num_ctx)
         return text, calls
+
+    async def _emit_usage(self, prompt_tokens: int, num_ctx: int, estimated: bool = False) -> None:
+        await self.bus.emit(
+            {
+                "type": "run.usage",
+                "run_id": self.id,
+                "prompt_tokens": int(prompt_tokens),
+                "num_ctx": int(num_ctx),
+                "estimated": estimated,
+            }
+        )
 
 
 class Engine:
-    def __init__(self, settings: Settings, bus: EventBus, tools: ToolRegistry) -> None:
+    def __init__(self, settings: Settings, bus: EventBus, tools: ToolRegistry, store: Any = None) -> None:
         self.settings = settings
         self.bus = bus
         self.tools = tools
+        self.store = store
         self.client = OllamaClient(settings)
         self.runs: dict[str, Run] = {}
 
@@ -399,6 +458,7 @@ class Engine:
             model=worker_model,
             orch_model=orch_model,
             cloud=bool(self.settings.use_cloud_orchestrator and self.settings.cloud_base_url),
+            store=self.store,
         )
         run.chat_id = chat_id
         run.project_id = project_id

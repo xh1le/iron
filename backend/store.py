@@ -31,15 +31,17 @@ def _guard_chat_id(chat_id: str) -> None:
 
 
 class Store:
-    """Projects, chats, messages, and uploads on disk."""
+    """Projects, chats, messages, uploads, and persistent memory on disk."""
 
     def __init__(self) -> None:
         self.root = iron_home()
         self.path = self.root / "store.json"
         self.uploads = self.root / "uploads"
+        self.mem_path = self.root / "memory.json"
         self.uploads.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         self._data = self._load()
+        self._mem = self._load_mem()
 
     def _blank(self) -> dict[str, Any]:
         ts = now_ms()
@@ -65,6 +67,8 @@ class Store:
                 data["projects"] = blank["projects"]
                 data.setdefault("active_project_id", blank["active_project_id"])
             data.setdefault("chats", [])
+            for chat in data["chats"]:
+                chat.setdefault("memory", {"summary": "", "updated_at": 0})
             return data
         except Exception:
             self._backup_corrupt()
@@ -84,6 +88,75 @@ class Store:
             fh.flush()
             os.fsync(fh.fileno())
         tmp.replace(self.path)
+
+    def _load_mem(self) -> dict[str, Any]:
+        if not self.mem_path.exists():
+            return {}
+        try:
+            data = json.loads(self.mem_path.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            try:
+                backup = self.mem_path.with_name(f"memory.json.corrupt-{now_ms()}")
+                self.mem_path.replace(backup)
+            except OSError:
+                pass
+            return {}
+
+    def _save_mem(self) -> None:
+        tmp = self.mem_path.with_name(f"{self.mem_path.name}.{uuid.uuid4().hex}.tmp")
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(self._mem, fh, indent=2, ensure_ascii=False)
+            fh.flush()
+            os.fsync(fh.fileno())
+        tmp.replace(self.mem_path)
+
+    def memory_put(self, project_id: str, key: str, value: str, run_id: str = "") -> None:
+        key = (key or "").strip()
+        value = (value or "").strip()[:2000]
+        if not key or not value or not project_id:
+            return
+        with self._lock:
+            project = self._mem.setdefault(project_id, {})
+            entry = project.setdefault(key, {"value": "", "ts": 0, "runs": []})
+            entry["value"] = value
+            entry["ts"] = now_ms()
+            if run_id and run_id not in entry["runs"]:
+                entry["runs"].append(run_id)
+                entry["runs"] = entry["runs"][-20:]
+            self._save_mem()
+
+    def memory_put_batch(self, project_id: str, items: dict[str, str], run_id: str = "") -> None:
+        if not project_id or not items:
+            return
+        with self._lock:
+            project = self._mem.setdefault(project_id, {})
+            changed = False
+            for key, value in items.items():
+                key = (key or "").strip()
+                value = (value or "").strip()[:2000]
+                if not key or not value:
+                    continue
+                entry = project.setdefault(key, {"value": "", "ts": 0, "runs": []})
+                if entry["value"] != value:
+                    entry["value"] = value
+                    entry["ts"] = now_ms()
+                    changed = True
+                if run_id and run_id not in entry["runs"]:
+                    entry["runs"].append(run_id)
+                    entry["runs"] = entry["runs"][-20:]
+                    changed = True
+            if changed:
+                self._save_mem()
+
+    def memory_get(self, project_id: str, key: str) -> str:
+        with self._lock:
+            entry = (self._mem.get(project_id) or {}).get(key)
+            return (entry or {}).get("value", "") or ""
+
+    def memory_all(self, project_id: str) -> dict[str, str]:
+        with self._lock:
+            return {k: v.get("value", "") for k, v in (self._mem.get(project_id) or {}).items()}
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
@@ -165,6 +238,7 @@ class Store:
             "created_at": now_ms(),
             "updated_at": now_ms(),
             "messages": [],
+            "memory": {"summary": "", "updated_at": 0},
         }
         with self._lock:
             if not any(p["id"] == project_id for p in self._data["projects"]):
@@ -231,13 +305,27 @@ class Store:
                 self._save()
                 return
 
-    def finish_run(self, run_id: str, content: str, status: str) -> dict[str, Any] | None:
+    def update_chat_memory(self, chat_id: str, summary: str) -> dict[str, Any] | None:
+        with self._lock:
+            for item in self._data["chats"]:
+                if item["id"] != chat_id:
+                    continue
+                item.setdefault("memory", {"summary": "", "updated_at": 0})
+                item["memory"]["summary"] = (summary or "").strip()[:1600]
+                item["memory"]["updated_at"] = now_ms()
+                self._save()
+                return dict(item)
+        return None
+
+    def finish_run(self, run_id: str, content: str, status: str, usage: dict[str, int] | None = None) -> dict[str, Any] | None:
         with self._lock:
             for item in self._data["chats"]:
                 for msg in item["messages"]:
                     if msg.get("run_id") == run_id and msg.get("role") == "assistant":
                         msg["content"] = content
                         msg["status"] = status
+                        if usage:
+                            msg["usage"] = usage
                         item["updated_at"] = now_ms()
                         self._save()
                         return dict(item)
@@ -251,6 +339,7 @@ class Store:
                             "attachments": [],
                             "run_id": run_id,
                             "status": status,
+                            "usage": usage or {},
                             "ts": now_ms(),
                         }
                     )
