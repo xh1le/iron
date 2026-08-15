@@ -45,7 +45,7 @@ button { cursor: pointer; transition: all 0.18s var(--ease); user-select: none; 
 button:active { transform: scale(0.97); }
 code, .mono, kbd { font-family: "IBM Plex Mono", ui-monospace, monospace; }
 
-.brand, .section-head, .count, .nav-settings, .run-item, .run-item *, .chip, .pill, .kicker, .live, .live *, .agent .t, .agent .stat, .landing h2, .landing p,
+.brand, .section-head, .count, .nav-settings, .run-item, .run-item *, .chip, .pill, .kicker, .live, .live *, .agent .t, .agent .stat, .agent .goal, .trace, .trace *, .landing h2, .landing p, .attach, .est, .toast, .cmd-hint, .cmd-none,
 .side .section-head, .right .section-head, .quiet, .settings-grid h3, .settings-grid label, .runbar, .runbar * {
   user-select: none;
   -webkit-user-select: none;
