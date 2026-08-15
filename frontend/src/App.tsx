@@ -198,6 +198,24 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [models.length]);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "c") return;
+      const target = e.target as HTMLElement | null;
+      const editable = !!target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+      if (editable && !e.shiftKey) {
+        const el = target as HTMLInputElement;
+        const selected = "selectionStart" in el ? el.selectionStart !== el.selectionEnd : !!window.getSelection()?.toString();
+        if (selected) return; // preserve copy in text fields
+      }
+      if (!activeRun || !["running", "needs_input", "queued"].includes(activeRun.status)) return;
+      e.preventDefault();
+      cancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [activeRun]);
+
   async function refreshChats(pid = projectId) {
     if (!pid) return;
     try {
@@ -678,6 +696,7 @@ export function App() {
           {activeRun && (activeRun.status === "running" || activeRun.status === "needs_input") && (
             <button className="ghost danger" onClick={cancel}>
               stop
+              <kbd>ctrl c</kbd>
             </button>
           )}
           <button className="solid" disabled={busy || runActive || !goal.trim()} onClick={() => launch()}>
