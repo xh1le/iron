@@ -139,7 +139,10 @@ export function App() {
     const connect = () => {
       const proto = location.protocol === "https:" ? "wss" : "ws";
       ws = new WebSocket(`${proto}://${location.host}/ws`);
-      ws.onopen = () => setLive(true);
+      ws.onopen = () => {
+        setLive(true);
+        loadModels(1);
+      };
       ws.onclose = () => {
         setLive(false);
         if (!stopped) timer = window.setTimeout(connect, 1200);
@@ -164,6 +167,20 @@ export function App() {
   useEffect(() => {
     streamRef.current?.scrollTo({ top: streamRef.current.scrollHeight });
   }, [chatId, chat?.messages, orchText, asks, traces]);
+
+  useEffect(() => {
+    let stopped = false;
+    (async () => {
+      for (let tries = 0; tries < 12 && !stopped; tries++) {
+        if (models.length > 0) break;
+        const names = await loadModels(0);
+        if (names.length > 0 || stopped) break;
+        await new Promise((r) => window.setTimeout(r, 2500));
+      }
+    })();
+    return () => { stopped = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [models.length]);
 
   async function refreshChats(pid = projectId) {
     if (!pid) return;
