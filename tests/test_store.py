@@ -21,6 +21,16 @@ def test_project_chat_upload(tmp_path: Path, monkeypatch):
     assert store.chat(chat["id"]) is None
 
 
+def test_clear_messages(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("backend.store.iron_home", lambda: tmp_path)
+    store = Store()
+    chat = store.create_chat(store.projects()[0]["id"], "New chat")
+    store.add_message(chat["id"], {"role": "user", "content": "a"})
+    store.add_message(chat["id"], {"role": "assistant", "content": "b"})
+    assert store.clear_messages(chat["id"]) is not None
+    assert store.chat(chat["id"])["messages"] == []
+
+
 def test_edit_delete_message(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("backend.store.iron_home", lambda: tmp_path)
     store = Store()

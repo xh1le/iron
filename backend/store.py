@@ -376,6 +376,17 @@ class Store:
                 return None
         return None
 
+    def clear_messages(self, chat_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            for item in self._data["chats"]:
+                if item["id"] != chat_id:
+                    continue
+                item["messages"] = []
+                item["updated_at"] = now_ms()
+                self._save()
+                return dict(item)
+        return None
+
     def save_upload(self, chat_id: str, filename: str, data: bytes) -> dict[str, Any]:
         _guard_chat_id(chat_id)
         if len(data) > MAX_UPLOAD:

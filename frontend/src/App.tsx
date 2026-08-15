@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Iridescence from "./components/Iridescence";
+import CommandMenu, { HelpModal, matchCommands, type Command } from "./components/CommandMenu";
 import Confirm from "./components/Confirm";
 import Markdown from "./components/Markdown";
 import Modal from "./components/Modal";
@@ -112,6 +113,9 @@ export function App() {
   const [renaming, setRenaming] = useState(false);
   const [renameText, setRenameText] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<{ chatId?: string; projectId?: string; messageId?: string } | null>(null);
+  const [cmdSelected, setCmdSelected] = useState(0);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const [goal, setGoal] = useState("");
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState(false);
@@ -150,6 +154,9 @@ export function App() {
   const activeRun = lastRunId ? runs[lastRunId] : null;
   const activeAgents = activeRun ? agents[activeRun.id] || activeRun.agents || [] : [];
   const running = activeAgents.filter((a) => !["done", "failed", "cancelled"].includes(a.status)).length;
+  const cmdOpen = goal.startsWith("/");
+  const cmdList = cmdOpen ? matchCommands(goal.slice(1), !!chat) : [];
+  const cmdIdx = Math.min(cmdSelected, Math.max(0, cmdList.length - 1));
   const runActive = !!activeRun && ["running", "queued", "needs_input"].includes(activeRun.status);
   const lastAssistant = chat?.messages.filter((m) => m.role === "assistant").reverse()[0];
   const gaugeUsage: Usage | undefined = (lastRunId ? usage[lastRunId] : undefined) || activeRun?.usage || lastAssistant?.usage;
@@ -691,6 +698,69 @@ export function App() {
     setRenaming(false);
   }
 
+  async function clearChat() {
+    if (!chatId) return;
+    const res = await api.json<{ ok: boolean; chat?: Chat }>(`/api/chats/${chatId}/clear`, { method: "POST" });
+    if (res.ok && res.chat) {
+      setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, messages: [] } : c)));
+      flash("chat cleared");
+    }
+    setConfirmClear(false);
+  }
+
+  function exportChat() {
+    if (!chat) return;
+    const lines = [`# ${chat.title || "chat"}`, ""];
+    for (const m of chat.messages) {
+      if (m.role === "user") {
+        lines.push("**user:**", m.content, "");
+        for (const f of m.attachments || []) lines.push(`*(attached: ${f.name})*`);
+      } else if (m.role === "assistant" && m.content) {
+        lines.push("**iron:**", m.content, "");
+      }
+    }
+    copyText(lines.join("\n"));
+    flash("chat copied as markdown");
+  }
+
+  function runCommand(cmd: Command, raw: string) {
+    const parts = raw.trim().split(/\s+/);
+    const arg = parts.slice(1).join(" ").trim();
+    setGoal("");
+    setCmdSelected(0);
+    switch (cmd.name) {
+      case "help":
+        setHelpOpen(true);
+        break;
+      case "new":
+        newChat();
+        break;
+      case "settings":
+        setPage("settings");
+        break;
+      case "rename":
+        if (arg && chatId) renameChat(arg);
+        else setRenaming(true);
+        break;
+      case "pin":
+        if (chat) pinChat(chat);
+        break;
+      case "clear":
+        setConfirmClear(true);
+        break;
+      case "export":
+        exportChat();
+        break;
+      case "model":
+        if (arg) saveSettings({ model: arg });
+        else flash("models: " + (models.length ? models.join(", ") : "none"));
+        break;
+      case "attach":
+        fileRef.current?.click();
+        break;
+    }
+  }
+
   async function pinChat(c: Chat) {
     try {
       const next = await api.json<Chat>(`/api/chats/${c.id}`, {
@@ -759,12 +829,22 @@ export function App() {
           ))}
         </div>
       )}
+      {cmdOpen && (
+        <CommandMenu query={goal.slice(1)} selected={cmdIdx} hasChat={!!chat} onHover={setCmdSelected} />
+      )}
       <textarea
         ref={boxRef}
         value={goal}
-        placeholder={chat ? "message iron…" : "what should iron do?"}
-        onChange={(e) => setGoal(e.target.value)}
+        placeholder={chat ? "message iron… (/ for commands)" : "what should iron do? (/ for commands)"}
+        onChange={(e) => { setGoal(e.target.value); setCmdSelected(0); }}
         onKeyDown={(e) => {
+          if (cmdOpen && cmdList.length > 0) {
+            if (e.key === "ArrowDown") { e.preventDefault(); setCmdSelected((s) => (s + 1) % cmdList.length); return; }
+            if (e.key === "ArrowUp") { e.preventDefault(); setCmdSelected((s) => (s - 1 + cmdList.length) % cmdList.length); return; }
+            if (e.key === "Tab") { e.preventDefault(); setGoal("/" + cmdList[cmdIdx].name + " "); setCmdSelected(0); return; }
+            if (e.key === "Enter") { e.preventDefault(); runCommand(cmdList[cmdIdx], goal.slice(1)); return; }
+            if (e.key === "Escape") { e.preventDefault(); setGoal(""); return; }
+          }
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             launch();
@@ -1176,6 +1256,15 @@ export function App() {
         onClose={() => setConfirmDelete(null)}
         onConfirm={() => { const id = confirmDelete?.messageId; if (id) deleteMessage(id); }}
       />
+      <Confirm
+        open={confirmClear}
+        title="clear chat?"
+        body="This removes all messages from this chat. The thread history stays."
+        confirmLabel="clear"
+        onClose={() => setConfirmClear(false)}
+        onConfirm={clearChat}
+      />
+      <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
       {toast && <div className="toast">{toast}</div>}
     </div>
   );

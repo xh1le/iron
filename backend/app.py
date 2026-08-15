@@ -150,6 +150,11 @@ def create_app() -> FastAPI:
     async def delete_chat(chat_id: str) -> dict[str, Any]:
         return {"ok": await asyncio.to_thread(store.delete_chat, chat_id)}
 
+    @app.post("/api/chats/{chat_id}/clear")
+    async def clear_chat(chat_id: str) -> dict[str, Any]:
+        item = store.clear_messages(chat_id)
+        return {"ok": item is not None, "chat": item}
+
     @app.delete("/api/chats/{chat_id}/messages/{message_id}")
     async def delete_message(chat_id: str, message_id: str) -> dict[str, Any]:
         item = store.delete_message(chat_id, message_id)
