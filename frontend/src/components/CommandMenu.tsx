@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 export type Command = { name: string; desc: string; arg?: string; needChat?: boolean };
 
@@ -30,30 +30,9 @@ type MenuProps = {
 
 export default function CommandMenu({ query, selected, hasChat, onHover }: MenuProps) {
   const list = matchCommands(query, hasChat);
-  const boxRef = useRef<HTMLDivElement>(null);
-  const prevH = useRef(0);
-
-  useEffect(() => {
-    const el = boxRef.current;
-    if (!el) return;
-    const next = el.offsetHeight;
-    const prev = prevH.current;
-    if (prev > 0 && Math.abs(next - prev) >= 2) {
-      el.style.transition = "none";
-      el.style.height = `${prev}px`;
-      void el.offsetHeight;
-      el.style.transition = "height 0.24s var(--ease-out)";
-      el.style.height = `${next}px`;
-      window.setTimeout(() => {
-        el.style.transition = "";
-        el.style.height = "";
-      }, 280);
-    }
-    prevH.current = next;
-  }, [list.length]);
 
   return (
-    <div className="cmd-menu" ref={boxRef} role="menu">
+    <div className="cmd-menu" role="menu">
       {list.length === 0 && <div className="cmd-none">no command matches “{query.trim()}”</div>}
       {list.map((c, i) => (
         <button
@@ -61,7 +40,6 @@ export default function CommandMenu({ query, selected, hasChat, onHover }: MenuP
           role="menuitem"
           key={c.name}
           className={`cmd-item ${i === selected ? "sel" : ""}`}
-          style={{ ["--i" as any]: i } as any}
           onMouseEnter={() => onHover(i)}
         >
           <span className="cmd-name">/{c.name}</span>
