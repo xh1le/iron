@@ -64,6 +64,15 @@ class ToolRegistry:
         except Exception as exc:
             return f"tool error ({name}): {exc}"
 
+    def sync_mcp(self, manager: Any) -> None:
+        for name in [n for n in self._tools if n.startswith("mcp__")]:
+            del self._tools[name]
+        for spec in manager.tool_specs():
+            self._tools[spec.name] = spec
+
+    def mcp_names(self) -> list[str]:
+        return [n for n in self._tools if n.startswith("mcp__")]
+
 
 def _str(args: dict[str, Any], key: str, default: str = "") -> str:
     value = args.get(key, default)

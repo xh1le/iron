@@ -11,6 +11,7 @@ import type {
   Attachment,
   Chat,
   IronEvent,
+  McpServer,
   Message,
   Project,
   RunSnapshot,
@@ -116,6 +117,9 @@ export function App() {
   const [cmdSelected, setCmdSelected] = useState(0);
   const [helpOpen, setHelpOpen] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+  const [mcpTesting, setMcpTesting] = useState("");
+  const [mcpForm, setMcpForm] = useState({ name: "", type: "stdio", command: "", args: "", url: "" });
   const [goal, setGoal] = useState("");
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState(false);
@@ -289,6 +293,10 @@ export function App() {
       if (timer) window.clearTimeout(timer);
     };
   }, []);
+
+  useEffect(() => {
+    if (page === "settings") loadMcpServers();
+  }, [page]);
 
   async function refreshChats(pid = projectId) {
     if (!pid) return;
@@ -593,6 +601,72 @@ export function App() {
     } catch {
       flash("couldn't save settings");
     }
+  }
+
+  async function loadMcpServers() {
+    try {
+      const res = await api.json<{ servers: McpServer[] }>("/api/mcp/servers");
+      setMcpServers(res.servers);
+    } catch {
+      /* settings page may open before backend is ready */
+    }
+  }
+
+  async function addMcpServer() {
+    const config: Record<string, string> = { type: mcpForm.type };
+    if (mcpForm.type === "stdio") {
+      config.command = mcpForm.command.trim();
+      config.args = mcpForm.args;
+    } else {
+      config.url = mcpForm.url.trim();
+    }
+    const name = mcpForm.name.trim();
+    if (!name) {
+      flash("give the server a name");
+      return;
+    }
+    try {
+      const res = await api.json<{ ok: boolean; error?: string; servers?: McpServer[] }>("/api/mcp/servers", {
+        method: "POST",
+        body: JSON.stringify({ name, config }),
+      });
+      if (!res.ok) {
+        flash(res.error || "couldn't add server");
+        return;
+      }
+      setMcpServers(res.servers || []);
+      setMcpForm({ name: "", type: "stdio", command: "", args: "", url: "" });
+      flash("mcp server added");
+    } catch {
+      flash("couldn't add server");
+    }
+  }
+
+  async function removeMcpServer(name: string) {
+    try {
+      const res = await api.json<{ ok: boolean; servers?: McpServer[] }>(`/api/mcp/servers/${encodeURIComponent(name)}`, {
+        method: "DELETE",
+      });
+      if (res.ok) setMcpServers(res.servers || []);
+    } catch {
+      flash("couldn't remove server");
+    }
+  }
+
+  async function testMcpServer(name: string) {
+    setMcpTesting(name);
+    try {
+      const res = await api.json<{ ok: boolean; error?: string; tools?: string[] }>(
+        `/api/mcp/servers/${encodeURIComponent(name)}/test`,
+        { method: "POST" },
+      );
+      if (res.ok) flash(`${name}: ${res.tools?.length || 0} tools`);
+      else flash(`${name}: ${res.error || "connection failed"}`);
+    } catch {
+      flash(`${name}: connection failed`);
+    }
+    setMcpTesting("");
+    loadMcpServers();
   }
 
   async function saveProjectWorkspace(workspace: string) {
@@ -1114,6 +1188,54 @@ export function App() {
                       </label>
                     </>
                   )}
+                </section>
+                <section>
+                  <h3>mcp servers</h3>
+                  <div className="quiet">
+                    external MCP servers — their tools appear to worker agents as <span className="mono">mcp__server__tool</span>.
+                  </div>
+                  {mcpServers.length > 0 && (
+                    <div className="mcp-list">
+                      {mcpServers.map((s) => (
+                        <div key={s.name} className={`mcp-item ${s.status === "ok" ? "ok" : ""}`}>
+                          <div className="mcp-head">
+                            <span className={`dot ${s.status === "ok" ? "on" : ""}`} />
+                            <span className="mono mcp-name">{s.name}</span>
+                            <span className="pill">{s.type}</span>
+                            <span className="count">{s.tools} tools</span>
+                          </div>
+                          <div className="mcp-target mono">{s.command || s.url}</div>
+                          {s.status !== "ok" && <div className="mcp-status err">{s.status}</div>}
+                          <div className="mcp-actions">
+                            <button type="button" className="ghost" disabled={!!mcpTesting} onClick={() => testMcpServer(s.name)}>
+                              {mcpTesting === s.name ? "testing…" : "test"}
+                            </button>
+                            <button type="button" className="ghost danger" onClick={() => removeMcpServer(s.name)}>
+                              remove
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="mcp-form">
+                    <input placeholder="name (filesystem, brave, …)" value={mcpForm.name} onChange={(e) => setMcpForm({ ...mcpForm, name: e.target.value })} />
+                    <select value={mcpForm.type} onChange={(e) => setMcpForm({ ...mcpForm, type: e.target.value })}>
+                      <option value="stdio">stdio</option>
+                      <option value="http">http</option>
+                    </select>
+                    {mcpForm.type === "stdio" ? (
+                      <>
+                        <input placeholder="command (npx, python, …)" value={mcpForm.command} onChange={(e) => setMcpForm({ ...mcpForm, command: e.target.value })} />
+                        <input placeholder="args, space separated (-y @modelcontextprotocol/server-filesystem)" value={mcpForm.args} onChange={(e) => setMcpForm({ ...mcpForm, args: e.target.value })} />
+                      </>
+                    ) : (
+                      <input placeholder="url (http://localhost:3001/mcp)" value={mcpForm.url} onChange={(e) => setMcpForm({ ...mcpForm, url: e.target.value })} />
+                    )}
+                    <button type="button" className="solid" onClick={addMcpServer}>
+                      add
+                    </button>
+                  </div>
                 </section>
               </div>
             )}

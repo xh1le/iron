@@ -90,6 +90,15 @@ export type Trace = {
   phase?: string;
 };
 
+export type McpServer = {
+  name: string;
+  type: "stdio" | "http";
+  command: string;
+  url: string;
+  tools: number;
+  status: string;
+};
+
 export type Settings = {
   ollama_host: string;
   model: string;
@@ -113,6 +122,7 @@ export type Settings = {
   window_y: number;
   workspace: string;
   theme: string;
+  mcp_servers: Record<string, Record<string, unknown>>;
 };
 
 export type IronEvent = {

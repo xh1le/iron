@@ -35,3 +35,38 @@ def test_mutations_require_token():
         pid = projects["projects"][0]["id"]
         res = client.post("/api/chats", json={"project_id": pid, "title": "New chat"})
         assert res.status_code == 403
+
+
+def test_mcp_server_endpoints():
+    app = create_app()
+    with TestClient(app) as client:
+        token = client.get("/api/bootstrap").json()["token"]
+        headers = {"X-Iron-Token": token}
+
+        listed = client.get("/api/mcp/servers").json()
+        assert "servers" in listed
+
+        res = client.post("/api/mcp/servers", json={"name": "", "config": {"type": "stdio"}}, headers=headers).json()
+        assert res["ok"] is False
+
+        res = client.post(
+            "/api/mcp/servers",
+            json={"name": "demo", "config": {"type": "stdio", "command": "npx", "args": "a b"}},
+            headers=headers,
+        ).json()
+        assert res["ok"] is True
+        assert any(s["name"] == "demo" for s in res["servers"])
+
+        listed = client.get("/api/mcp/servers").json()["servers"]
+        demo = next(s for s in listed if s["name"] == "demo")
+        assert demo["command"] == "npx"
+
+        res = client.post("/api/mcp/servers", json={"name": "demo", "config": {"type": "stdio", "command": "x"}}, headers=headers).json()
+        assert res["ok"] is False
+
+        res = client.delete("/api/mcp/servers/demo", headers=headers).json()
+        assert res["ok"] is True
+        assert all(s["name"] != "demo" for s in res["servers"])
+
+        res = client.delete("/api/mcp/servers/demo", headers=headers).json()
+        assert res["ok"] is False

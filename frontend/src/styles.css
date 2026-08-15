@@ -558,6 +558,19 @@ code, .mono, kbd { font-family: "IBM Plex Mono", ui-monospace, monospace; }
 .setting-field .model-trigger { width: 100%; justify-content: space-between; }
 .setting-field .model-picker { width: 100%; }
 
+.mcp-list { display: grid; gap: 8px; }
+.mcp-item { border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); border-radius: 12px; padding: 10px 12px; display: grid; gap: 6px; transition: all 0.22s var(--ease); }
+.mcp-item:hover { border-color: rgba(255,255,255,0.18); background: rgba(255,255,255,0.05); }
+.mcp-item.ok { border-color: rgba(130, 200, 160, 0.28); }
+.mcp-head { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.mcp-name { color: var(--text); font-weight: 600; }
+.mcp-target { font-size: 11px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mcp-status { font-size: 11px; }
+.mcp-actions { display: flex; gap: 8px; }
+.mcp-actions .ghost { padding: 4px 10px; font-size: 11px; }
+.mcp-form { display: grid; gap: 6px; }
+.mcp-form input, .mcp-form select { font-size: 12px; }
+
 .live { display: flex; gap: 8px; align-items: center; color: var(--faint); font-size: 11px; padding: 10px 18px 12px; }
 .sep { width: 3px; height: 3px; border-radius: 50%; background: var(--faint); }
 .hot { color: var(--warn); animation: hotPulse 1.4s ease-in-out infinite; }

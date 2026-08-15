@@ -84,6 +84,7 @@ class SettingsIn(BaseModel):
     window_y: int | None = None
     workspace: str | None = None
     theme: str | None = None
+    mcp_servers: dict[str, dict[str, Any]] | None = None
 
 
 class RunIn(BaseModel):

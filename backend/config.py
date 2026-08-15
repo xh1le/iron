@@ -41,6 +41,7 @@ class Settings(BaseModel):
     window_y: int = -1
     workspace: str = str(default_workspace())
     theme: str = "iron"
+    mcp_servers: dict[str, dict[str, Any]] = {}
 
     def resolved_model(self) -> str:
         return self.model or "gemma4:e4b"

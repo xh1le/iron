@@ -9,6 +9,7 @@ from .agent import Agent
 from .config import Settings
 from .context import ctx_budget, compact_messages, estimate_messages, estimate_tokens
 from .events import EventBus, now_ms
+from .mcp import MCPManager
 from .memory import SharedMemory
 from .models import RunSnapshot
 from .ollama import ModelError, OllamaClient, extract_delta, merge_tool_call_deltas, parse_tool_args
@@ -443,12 +444,36 @@ class Engine:
         self.store = store
         self.client = OllamaClient(settings)
         self.embedder = Embedder(self.client)
+        self.mcp = MCPManager(settings.mcp_servers)
         self.runs: dict[str, Run] = {}
+        self.resync()
+
+    def resync(self) -> None:
+        self.mcp.configure(self.settings.mcp_servers)
+        self.tools.sync_mcp(self.mcp)
+
+        def _prewarm() -> None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                return
+
+            async def _go() -> None:
+                await self.mcp.prewarm()
+                self.tools.sync_mcp(self.mcp)
+
+            loop.create_task(_go())
+
+        _prewarm()
 
     def reload(self, settings: Settings) -> None:
         self.settings = settings
         self.client = OllamaClient(settings)
         self.embedder = Embedder(self.client)
+        self.resync()
+
+    async def close(self) -> None:
+        await self.mcp.disconnect_all()
 
     async def create_run(
         self,

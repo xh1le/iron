@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import load_settings, merge_settings
 from .events import EventBus
+from .mcp import normalize_config, validate_server
 from .models import ChatIn, ChatPatch, ProjectIn, RunIn, SettingsIn
 from .orchestrator import Engine, Run
 from .store import Store
@@ -48,6 +49,10 @@ def create_app() -> FastAPI:
                 app.state.settings = updated
                 app.state.engine.reload(updated)
         yield
+        try:
+            await app.state.engine.close()
+        except Exception:
+            pass
 
     app = FastAPI(title="iron", version="0.1.0", lifespan=lifespan)
     # Same-origin only: the frontend is served by this app (or proxied by vite in dev),
@@ -106,6 +111,50 @@ def create_app() -> FastAPI:
             return {"models": items, "error": None}
         except Exception as exc:
             return {"models": [], "error": str(exc)}
+
+    @app.get("/api/mcp/servers")
+    async def mcp_servers() -> dict[str, Any]:
+        return {"servers": app.state.engine.mcp.snapshot()}
+
+    @app.post("/api/mcp/servers")
+    async def mcp_add(body: dict[str, Any]) -> dict[str, Any]:
+        name = str(body.get("name") or "").strip()
+        cfg = normalize_config(dict(body.get("config") or {}))
+        error = validate_server(name, cfg)
+        if error:
+            return {"ok": False, "error": error}
+        servers = dict(app.state.settings.mcp_servers)
+        if name in servers:
+            return {"ok": False, "error": "a server with that name already exists"}
+        servers[name] = cfg
+        updated = merge_settings(app.state.settings, {"mcp_servers": servers})
+        app.state.settings = updated
+        app.state.engine.reload(updated)
+        return {"ok": True, "servers": app.state.engine.mcp.snapshot()}
+
+    @app.delete("/api/mcp/servers/{name}")
+    async def mcp_remove(name: str) -> dict[str, Any]:
+        servers = dict(app.state.settings.mcp_servers)
+        if name not in servers:
+            return {"ok": False, "error": "not found"}
+        del servers[name]
+        updated = merge_settings(app.state.settings, {"mcp_servers": servers})
+        app.state.settings = updated
+        app.state.engine.reload(updated)
+        return {"ok": True, "servers": app.state.engine.mcp.snapshot()}
+
+    @app.post("/api/mcp/servers/{name}/test")
+    async def mcp_test(name: str) -> dict[str, Any]:
+        manager = app.state.engine.mcp
+        if name not in manager.servers:
+            return {"ok": False, "error": "not found"}
+        try:
+            tools = await asyncio.wait_for(manager.probe(name), timeout=25)
+        except asyncio.TimeoutError:
+            return {"ok": False, "error": "connection timed out"}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "tools": tools}
 
     @app.get("/api/projects")
     async def list_projects() -> dict[str, Any]:

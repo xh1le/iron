@@ -126,6 +126,7 @@ class Agent:
         ]
         if self.depth < self.settings.max_depth:
             names.append("spawn_subagent")
+        names += self.tools.mcp_names()
         return names
 
     async def _spawn(self, title: str, goal: str) -> str:
