@@ -79,7 +79,6 @@ async def build_memory_block(
     chat_id: str,
     query: str,
     budget_tokens: int,
-    client: Any = None,
     embedder: Any = None,
 ) -> str:
     """Build a compact, token-capped memory block for the orchestrator prompt.
