@@ -120,7 +120,7 @@ async def build_memory_block(
         try:
             from .retrieval import retrieve
 
-            hits = await retrieve(store, client, embedder, project_id, chat_id, query, top_k=3)
+            hits = await retrieve(store, embedder, project_id, chat_id, query, top_k=3)
             if hits:
                 add("RECALLED", "\n".join(hits), 0.35)
         except Exception:

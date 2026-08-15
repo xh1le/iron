@@ -13,6 +13,7 @@ from .memory import SharedMemory
 from .models import RunSnapshot
 from .ollama import ModelError, OllamaClient, extract_delta, merge_tool_call_deltas, parse_tool_args
 from .parse import extract_text_tool_calls
+from .retrieval import Embedder
 from .tools.registry import ToolRegistry
 
 SUMMARY_SYSTEM = """You are iron's memory keeper. Compress the conversation into a dense memory block a future agent can use to continue the work without re-reading history.
@@ -63,6 +64,7 @@ class Run:
         orch_model: str,
         cloud: bool,
         store: Any = None,
+        embedder: Any = None,
     ) -> None:
         self.id = "run_" + uuid.uuid4().hex[:10]
         self.goal = goal
@@ -75,6 +77,7 @@ class Run:
         self.orch_model = orch_model
         self.cloud = cloud
         self.store = store
+        self.embedder = embedder
         self.status = "queued"
         self.result = ""
         self.error = ""
@@ -182,6 +185,7 @@ class Run:
                     self.chat_id,
                     self.goal,
                     int(self.settings.ctx() * max(0.1, min(0.95, self.settings.ctx_target)) * 0.4),
+                    embedder=self.embedder,
                 )
             except Exception:
                 memory_block = ""
@@ -438,11 +442,13 @@ class Engine:
         self.tools = tools
         self.store = store
         self.client = OllamaClient(settings)
+        self.embedder = Embedder(self.client)
         self.runs: dict[str, Run] = {}
 
     def reload(self, settings: Settings) -> None:
         self.settings = settings
         self.client = OllamaClient(settings)
+        self.embedder = Embedder(self.client)
 
     async def create_run(
         self,
@@ -469,6 +475,7 @@ class Engine:
             orch_model=orch_model,
             cloud=bool(self.settings.use_cloud_orchestrator and self.settings.cloud_base_url),
             store=self.store,
+            embedder=self.embedder,
         )
         run.chat_id = chat_id
         run.project_id = project_id

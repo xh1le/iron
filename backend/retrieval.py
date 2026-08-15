@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import math
 import re
 from collections import Counter
 from typing import Any
+
+import httpx
 
 _TOKEN_RE = re.compile(r"[a-z0-9_]+")
 
@@ -43,9 +46,60 @@ def bm25_scores(docs: list[str], query: str, k1: float = 1.5, b: float = 0.75) -
     return scores
 
 
+class Embedder:
+    """Lazy embedding client over ollama's /api/embed with an in-memory cache.
+
+    Falls back to nothing (BM25 only) when no embed model is installed.
+    """
+
+    PREFERRED = ["nomic-embed-text", "bge-m3", "all-minilm", "mxbai-embed-large"]
+
+    def __init__(self, client: Any, fetch: Any = None) -> None:
+        self.client = client
+        self.model: str | None = None
+        self._lock = asyncio.Lock()
+        self._cache: dict[str, list[float]] = {}
+        self._fetch = fetch or self._default_fetch
+
+    async def _default_fetch(self, model: str, text: str) -> list[float]:
+        url = self.client.settings.ollama_host.rstrip("/") + "/api/embed"
+        async with httpx.AsyncClient(timeout=httpx.Timeout(connect=8.0, read=60.0)) as http:
+            res = await http.post(url, json={"model": model, "input": text})
+            res.raise_for_status()
+            data = res.json()
+        embs = data.get("embeddings")
+        if embs:
+            return embs[0] if isinstance(embs[0], list) else []
+        return data.get("embedding") or []
+
+    async def ensure(self) -> bool:
+        if self.model is not None:
+            return bool(self.model)
+        async with self._lock:
+            if self.model is not None:
+                return bool(self.model)
+            try:
+                items = await self.client.list_models()
+                names = [str(m.get("name") or "") for m in items]
+                self.model = next((n for n in self.PREFERRED if n in names), None)
+            except Exception:
+                self.model = None
+        return bool(self.model)
+
+    async def embed(self, text: str) -> list[float]:
+        key = text[:512]
+        if key in self._cache:
+            return self._cache[key]
+        vec = await self._fetch(self.model or "", text)
+        self._cache[key] = vec
+        return vec
+
+    async def embed_many(self, texts: list[str]) -> list[list[float]]:
+        return [await self.embed(t) for t in texts]
+
+
 async def retrieve(
     store: Any,
-    client: Any,
     embedder: Any,
     project_id: str,
     chat_id: str,

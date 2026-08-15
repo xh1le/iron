@@ -87,7 +87,23 @@ def _bool(args: dict[str, Any], key: str, default: bool = False) -> bool:
 
 
 async def _read(args: dict[str, Any], ctx: ToolContext) -> str:
-    return await asyncio.to_thread(fs.read_file, ctx.workspace, _str(args, "path"), _int(args, "offset", 1), _int(args, "limit", 400))
+    path = _str(args, "path")
+    offset = _int(args, "offset", 1)
+    limit = _int(args, "limit", 400)
+    cache = ctx.memory if ctx.memory is not None else None
+    key = (path, offset, limit)
+    try:
+        if cache is not None and hasattr(cache, "file_cache_get"):
+            stat = fs.resolve_workspace(ctx.workspace, path).stat()
+            hit = cache.file_cache_get(key)
+            if hit and hit[0] == stat.st_mtime and hit[1] == stat.st_size:
+                return hit[2]
+            out = await asyncio.to_thread(fs.read_file, ctx.workspace, path, offset, limit)
+            cache.file_cache_put(key, stat.st_mtime, stat.st_size, out)
+            return out
+    except Exception:
+        pass
+    return await asyncio.to_thread(fs.read_file, ctx.workspace, path, offset, limit)
 
 
 async def _write(args: dict[str, Any], ctx: ToolContext) -> str:

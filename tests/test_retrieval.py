@@ -32,7 +32,7 @@ def test_retrieve_finds_facts(tmp_path, monkeypatch):
     store.memory_put(project["id"], "api endpoint", "POST /api/runs starts a run on the local server")
     other = store.create_chat(project["id"], "other")
     store.update_chat_memory(other["id"], "we discussed which ports the server should use")
-    hits = asyncio.run(retrieve(store, None, None, project["id"], "", "how do I start a run", top_k=3))
+    hits = asyncio.run(retrieve(store, None, project["id"], "", "how do I start a run", top_k=3))
     assert any("api endpoint" in h for h in hits)
 
 
@@ -44,7 +44,7 @@ def test_retrieve_skips_current_chat_summary(tmp_path, monkeypatch):
     project = store.projects()[0]
     chat = store.create_chat(project["id"], "current")
     store.update_chat_memory(chat["id"], "this summary must not be retrieved as another chat")
-    hits = asyncio.run(retrieve(store, None, None, project["id"], chat["id"], "this summary must not", top_k=3))
+    hits = asyncio.run(retrieve(store, None, project["id"], chat["id"], "this summary must not", top_k=3))
     assert not any("must not be retrieved" in h for h in hits)
 
 
