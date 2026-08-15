@@ -8,18 +8,22 @@ from pathlib import Path
 MAX_OUTPUT = 24_000
 
 
-async def run_python(code: str, timeout: int = 30) -> str:
+async def run_python(code: str, timeout: int = 30, cwd: str | None = None) -> str:
     fd, name = tempfile.mkstemp(prefix="iron_", suffix=".py")
     os.close(fd)
     path = Path(name)
     try:
         path.write_text(code, encoding="utf-8")
-        proc = await asyncio.create_subprocess_exec(
-            "python",
-            str(path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "python",
+                str(path),
+                cwd=cwd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+        except OSError as exc:
+            return f"[spawn failed] {exc}"
         try:
             raw, _ = await asyncio.wait_for(proc.communicate(), timeout=max(5, int(timeout)))
         except asyncio.TimeoutError:

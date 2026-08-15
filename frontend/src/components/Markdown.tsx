@@ -3,6 +3,41 @@ import { marked } from "marked";
 
 marked.setOptions({ breaks: true, gfm: true });
 
+const ALLOWED_TAGS = new Set([
+  "A", "B", "STRONG", "EM", "I", "U", "S", "DEL", "CODE", "PRE", "P", "BR",
+  "UL", "OL", "LI", "H1", "H2", "H3", "H4", "H5", "H6", "BLOCKQUOTE", "HR",
+  "TABLE", "THEAD", "TBODY", "TR", "TH", "TD", "SPAN", "DIV", "IMG", "SUP", "SUB",
+]);
+
+function sanitizeHtml(html: string): string {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const els = Array.from(doc.body.querySelectorAll("*"));
+  for (const el of els) {
+    if (!ALLOWED_TAGS.has(el.tagName)) {
+      el.replaceWith(...Array.from(el.childNodes));
+      continue;
+    }
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase();
+      if (name.startsWith("on")) {
+        el.removeAttribute(attr.name);
+        continue;
+      }
+      if (name === "href" || name === "src") {
+        const v = attr.value.trim();
+        if (/^\s*(javascript|data|vbscript):/i.test(v)) {
+          el.removeAttribute(attr.name);
+        }
+      }
+    }
+    if (el.tagName === "A") {
+      el.setAttribute("rel", "noopener noreferrer");
+      el.setAttribute("target", "_blank");
+    }
+  }
+  return doc.body.innerHTML;
+}
+
 function CodeBlock({ code }: { code: string }) {
   return (
     <div className="code-block">
@@ -18,8 +53,6 @@ function CodeBlock({ code }: { code: string }) {
 }
 
 export default function Markdown({ text }: { text: string }) {
-  // Split on code fences ourselves so code blocks get chrome + copy button;
-  // everything else flows through marked.
   const parts = useMemo(() => {
     const out: { kind: "md" | "code"; text: string }[] = [];
     const re = /```(\w*)\n([\s\S]*?)(?:```|$)/g;
@@ -40,7 +73,7 @@ export default function Markdown({ text }: { text: string }) {
         p.kind === "code" ? (
           <CodeBlock key={i} code={p.text} />
         ) : (
-          <div key={i} dangerouslySetInnerHTML={{ __html: marked.parse(p.text) as string }} />
+          <div key={i} dangerouslySetInnerHTML={{ __html: sanitizeHtml(marked.parse(p.text) as string) }} />
         ),
       )}
     </div>

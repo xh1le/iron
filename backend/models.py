@@ -67,10 +67,14 @@ class SettingsIn(BaseModel):
     cloud_model: str | None = None
     use_cloud_orchestrator: bool | None = None
     num_ctx: int | None = None
+    max_ctx: int | None = None
     temperature: float | None = None
     max_concurrent: int | None = None
+    max_depth: int | None = None
     max_agent_steps: int | None = None
+    max_orchestrator_rounds: int | None = None
     workspace: str | None = None
+    theme: str | None = None
 
 
 class RunIn(BaseModel):

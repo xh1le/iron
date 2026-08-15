@@ -29,6 +29,8 @@ def _browser_cmd(url: str) -> list[str] | None:
     for name in ("chrome", "msedge", "chromium", "firefox"):
         p = shutil.which(name)
         if p:
+            if "firefox" in name:
+                return [p, "-new-window", url]
             return [p, f"--app={url}", "--window-size=1440,920"]
     for p in [
         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
@@ -38,7 +40,7 @@ def _browser_cmd(url: str) -> list[str] | None:
         r"C:\Program Files\Mozilla Firefox\firefox.exe",
     ]:
         if Path(p).exists():
-            return [p, f"--app={url}"] if "Firefox" not in p else [p, url]
+            return [p, f"--app={url}"] if "Firefox" not in p else [p, "-new-window", url]
     return None
 
 def open_window(url: str) -> None:

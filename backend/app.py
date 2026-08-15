@@ -168,8 +168,17 @@ def create_app() -> FastAPI:
         workspace = body.workspace or (project.get("workspace") if project else "") or app.state.settings.workspace
         chat_id = body.chat_id or ""
         if not chat_id:
-            created = store.create_chat((body.project_id or (store.projects()[0]["id"] if store.projects() else "")), "New chat")
+            projects = store.projects()
+            pid = body.project_id or (projects[0]["id"] if projects else "")
+            if not pid:
+                return {"error": "no project — create one first"}
+            try:
+                created = store.create_chat(pid, "New chat")
+            except ValueError as exc:
+                return {"error": str(exc)}
             chat_id = created["id"]
+        elif not store.chat(chat_id):
+            return {"error": "chat not found"}
         extra = store.context_block(chat_id)
         files = body.attachments or []
         if files:
@@ -236,8 +245,9 @@ def create_app() -> FastAPI:
 
         @app.get("/{full_path:path}")
         async def spa(full_path: str) -> FileResponse:
-            target = FRONTEND_DIST / full_path
-            if full_path and target.is_file():
+            root = FRONTEND_DIST.resolve()
+            target = (FRONTEND_DIST / full_path).resolve()
+            if full_path and target.is_file() and target.is_relative_to(root):
                 return FileResponse(target)
             return FileResponse(FRONTEND_DIST / "index.html")
 

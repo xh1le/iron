@@ -61,10 +61,18 @@ class Store:
             data.setdefault("chats", [])
             return data
         except Exception:
+            self._backup_corrupt()
             return self._blank()
 
+    def _backup_corrupt(self) -> None:
+        try:
+            backup = self.path.with_name(f"{self.path.name}.corrupt-{now_ms()}")
+            self.path.replace(backup)
+        except OSError:
+            pass
+
     def _save(self) -> None:
-        tmp = self.path.with_suffix(".tmp")
+        tmp = self.path.with_name(f"{self.path.name}.{uuid.uuid4().hex}.tmp")
         tmp.write_text(json.dumps(self._data, indent=2, ensure_ascii=False), encoding="utf-8")
         tmp.replace(self.path)
 
@@ -114,12 +122,17 @@ class Store:
                 return False
             if not any(p["id"] == project_id for p in projects):
                 return False
+            removed_chats = [c["id"] for c in self._data["chats"] if c.get("project_id") == project_id]
             self._data["projects"] = [p for p in projects if p["id"] != project_id]
             self._data["chats"] = [c for c in self._data["chats"] if c.get("project_id") != project_id]
             if self._data.get("active_project_id") == project_id:
                 self._data["active_project_id"] = self._data["projects"][0]["id"]
             self._save()
-            return True
+        for chat_id in removed_chats:
+            folder = self.uploads / chat_id
+            if folder.exists():
+                shutil.rmtree(folder, ignore_errors=True)
+        return True
 
     def chats(self, project_id: str | None = None) -> list[dict[str, Any]]:
         with self._lock:

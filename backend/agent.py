@@ -149,6 +149,7 @@ class Agent:
         ctx = ToolContext(self.workspace, self.memory, self._spawn if self.depth < self.settings.max_depth else None)
 
         try:
+            content = ""
             # Limit only inference, never the whole agent. Holding the semaphore
             # across spawn_subagent deadlocks parents waiting on their children.
             for step in range(1, self.settings.max_agent_steps + 1):
@@ -160,6 +161,10 @@ class Agent:
                 await self._set("thinking")
                 self._compact(messages)
                 content, tool_calls = await self._infer(messages, schemas)
+                if self.cancel.is_set():
+                    await self._set("cancelled")
+                    self.result = "cancelled"
+                    return self.result
                 if tool_calls:
                     messages.append(
                         {
@@ -194,14 +199,14 @@ class Agent:
                 await self._set("done")
                 await self._emit("agent.result", result=self.result)
                 return self.result
-            self.result = (content if "content" in locals() else "") or "step limit reached"
+            self.result = content or "step limit reached"
             await self._set("done")
             await self._emit("agent.result", result=self.result)
             return self.result
         except asyncio.CancelledError:
             self.result = "cancelled"
             await self._set("cancelled")
-            raise
+            return self.result
         except Exception as exc:
             self.error = str(exc)
             self.result = f"failed: {exc}"
@@ -254,5 +259,5 @@ class Agent:
         calls = [c for c in calls if (c.get("function") or {}).get("name")]
         text = "".join(parts)
         if not calls:
-            calls = extract_text_tool_calls(text)
+            calls = extract_text_tool_calls(text, set(self._tool_names()))
         return text, calls

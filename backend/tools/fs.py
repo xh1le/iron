@@ -52,11 +52,15 @@ def read_file(root: str, path: str, offset: int = 1, limit: int = 400) -> str:
         raise WorkspaceError(f"not found: {path}")
     if not target.is_file():
         raise WorkspaceError(f"not a file: {path}")
+    if target.stat().st_size > MAX_READ:
+        raise WorkspaceError("file too large to read")
     text = target.read_text(encoding="utf-8", errors="replace")
     if len(text) > MAX_READ:
         text = text[:MAX_READ] + "\n… [truncated]"
     lines = text.splitlines()
     start = max(1, int(offset))
+    if start > len(lines):
+        return f"{relpath(root, target)}  lines 0-0/{len(lines)}"
     end = min(len(lines), start - 1 + max(1, int(limit)))
     numbered = [f"{i + 1:>5}| {lines[i]}" for i in range(start - 1, end)]
     header = f"{relpath(root, target)}  lines {start}-{end}/{len(lines)}"
@@ -73,6 +77,8 @@ def write_file(root: str, path: str, content: str) -> str:
 
 
 def edit_file(root: str, path: str, old: str, new: str, replace_all: bool = False) -> str:
+    if not old:
+        raise WorkspaceError("old_string must not be empty")
     target = resolve_workspace(root, path)
     if not target.is_file():
         raise WorkspaceError(f"not found: {path}")
@@ -85,6 +91,8 @@ def edit_file(root: str, path: str, old: str, new: str, replace_all: bool = Fals
     if count > 1 and not replace_all:
         raise WorkspaceError(f"old_string matches {count} times — add context or set replace_all")
     updated = text.replace(old, new) if replace_all else text.replace(old, new, 1)
+    if len(updated) > MAX_WRITE:
+        raise WorkspaceError("edit result too large")
     target.write_text(updated, encoding="utf-8")
     kind = "all" if replace_all else "1"
     return f"edited {relpath(root, target)} ({kind}/{count} replacements)"
@@ -119,7 +127,26 @@ def search_text(root: str, query: str, path: str = ".", glob: str = "") -> str:
     except re.error:
         rx = re.compile(re.escape(query))
     hits: list[str] = []
-    base = Path(root).resolve()
+    base = Path(root).expanduser().resolve()
+
+    def scan_file(file: Path) -> None:
+        if glob and not fnmatch.fnmatch(file.name, glob):
+            return
+        try:
+            if file.stat().st_size > MAX_READ:
+                return
+            text = file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return
+        for i, line in enumerate(text.splitlines(), 1):
+            if rx.search(line):
+                try:
+                    rel = str(file.resolve().relative_to(base)).replace("\\", "/")
+                except ValueError:
+                    rel = str(file)
+                hits.append(f"{rel}:{i}: {line.strip()[:240]}")
+                if len(hits) >= MAX_SEARCH_HITS:
+                    return
 
     def walk(folder: Path) -> None:
         if len(hits) >= MAX_SEARCH_HITS:
@@ -133,26 +160,15 @@ def search_text(root: str, query: str, path: str = ".", glob: str = "") -> str:
                 return
             if child.name in SKIP_DIRS:
                 continue
-            if child.is_dir():
+            if child.is_dir() and not child.is_symlink():
                 walk(child)
                 continue
-            if glob and not fnmatch.fnmatch(child.name, glob):
+            if child.is_symlink() and not child.is_file():
                 continue
-            try:
-                if child.stat().st_size > MAX_READ:
-                    continue
-                text = child.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            for i, line in enumerate(text.splitlines(), 1):
-                if rx.search(line):
-                    rel = str(child.resolve().relative_to(base)).replace("\\", "/")
-                    hits.append(f"{rel}:{i}: {line.strip()[:240]}")
-                    if len(hits) >= MAX_SEARCH_HITS:
-                        return
+            scan_file(child)
 
     if target.is_file():
-        walk(target.parent)
+        scan_file(target)
     else:
         walk(target)
     if not hits:

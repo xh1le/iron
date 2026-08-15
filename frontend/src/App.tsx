@@ -29,6 +29,7 @@ const api = {
       ...init,
       headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
     });
+    if (!res.ok) throw new Error(`request failed (${res.status})`);
     return res.json() as Promise<T>;
   },
 };
@@ -89,6 +90,11 @@ export function App() {
   const streamRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const toastTimer = useRef<number | undefined>(undefined);
+  const projectIdRef = useRef(projectId);
+  useEffect(() => {
+    projectIdRef.current = projectId;
+  }, [projectId]);
 
   const project = projects.find((p) => p.id === projectId) || null;
   const chat = chats.find((c) => c.id === chatId) || null;
@@ -105,6 +111,7 @@ export function App() {
   const activeRun = lastRunId ? runs[lastRunId] : null;
   const activeAgents = activeRun ? agents[activeRun.id] || activeRun.agents || [] : [];
   const running = activeAgents.filter((a) => !["done", "failed", "cancelled"].includes(a.status)).length;
+  const runActive = !!activeRun && ["running", "queued", "needs_input"].includes(activeRun.status);
 
   useEffect(() => {
     (async () => {
@@ -142,6 +149,7 @@ export function App() {
       ws.onopen = () => {
         setLive(true);
         loadModels(1);
+        resync();
       };
       ws.onclose = () => {
         setLive(false);
@@ -184,8 +192,28 @@ export function App() {
 
   async function refreshChats(pid = projectId) {
     if (!pid) return;
-    const c = await api.json<{ chats: Chat[] }>(`/api/chats?project_id=${pid}`);
-    setChats(c.chats || []);
+    try {
+      const c = await api.json<{ chats: Chat[] }>(`/api/chats?project_id=${pid}`);
+      setChats(c.chats || []);
+    } catch {
+      /* backend not ready */
+    }
+  }
+
+  async function resync() {
+    try {
+      const r = await api.json<{ runs: RunSnapshot[] }>("/api/runs");
+      setRuns((prev) => {
+        const next = { ...prev };
+        for (const run of r.runs || []) next[run.id] = { ...(next[run.id] || {}), ...run };
+        return next;
+      });
+      const active = (r.runs || []).some((x) => ["running", "queued", "needs_input"].includes(x.status));
+      if (!active) setBusy(false);
+      if (projectIdRef.current) await refreshChats(projectIdRef.current);
+    } catch {
+      /* backend still warming up */
+    }
   }
 
   async function loadModels(retries = 0) {
@@ -213,6 +241,7 @@ export function App() {
     setPage("chat");
     setEditingMsg(null);
     setRenaming(false);
+    setFiles([]);
     await refreshChats(id);
   }
 
@@ -245,7 +274,7 @@ export function App() {
       const list = prev[agentId] ? [...prev[agentId]] : [];
       const last = list[list.length - 1];
       if (last && last.kind === kind && (kind === "think" || kind === "token")) {
-        last.text += text;
+        list[list.length - 1] = { ...last, text: last.text + text };
         return { ...prev, [agentId]: list };
       }
       list.push({ id: uid(), ts: Date.now(), agentId, kind, text, ...extra });
@@ -315,13 +344,18 @@ export function App() {
   }
 
   async function newProject(name: string) {
-    const item = await api.json<Project>("/api/projects", {
-      method: "POST",
-      body: JSON.stringify({ name, workspace: settings?.workspace || "" }),
-    });
-    if ((item as unknown as { error?: string }).error) return;
-    setProjects((prev) => [...prev, item]);
-    await switchProject(item.id);
+    if (!name.trim()) return;
+    try {
+      const item = await api.json<Project>("/api/projects", {
+        method: "POST",
+        body: JSON.stringify({ name, workspace: settings?.workspace || "" }),
+      });
+      if ((item as unknown as { error?: string }).error) return;
+      setProjects((prev) => [...prev, item]);
+      await switchProject(item.id);
+    } catch {
+      flash("couldn't create project");
+    }
   }
 
   async function deleteProject(id: string) {
@@ -331,20 +365,34 @@ export function App() {
 
   async function confirmDeleteProject() {
     const id = confirmDelete?.projectId;
-    if (!id) return;
-    const res = await api.json<{ ok: boolean }>(`/api/projects/${id}`, { method: "DELETE" });
-    if (!res.ok) return;
+    if (!id) {
+      setConfirmDelete(null);
+      return;
+    }
+    let ok = false;
+    try {
+      const res = await api.json<{ ok: boolean }>(`/api/projects/${id}`, { method: "DELETE" });
+      ok = !!res.ok;
+    } catch {
+      flash("couldn't delete project");
+    }
+    setConfirmDelete(null);
+    if (!ok) return;
     const remaining = projects.filter((p) => p.id !== id);
     setProjects(remaining);
-    if (projectId === id) await switchProject(remaining[0].id);
-    else await refreshChats(projectId);
-    setConfirmDelete(null);
+    if (projectId === id) {
+      const next = remaining[0];
+      if (next) await switchProject(next.id);
+      else setChatId(null);
+    } else {
+      await refreshChats(projectId);
+    }
     flash("project deleted");
   }
 
-  async function launch(text = goal) {
+  async function launch(text = goal, attachments: Attachment[] = files) {
     const next = text.trim();
-    if (!next || busy || !projectId) return;
+    if (!next || busy || runActive || !projectId) return;
     setBusy(true);
     try {
       const run = await api.json<RunSnapshot & { chat?: Chat }>("/api/runs", {
@@ -355,7 +403,7 @@ export function App() {
           model: settings?.model || undefined,
           project_id: projectId,
           chat_id: chatId,
-          attachments: files,
+          attachments,
         }),
       });
       if ((run as unknown as { error?: string }).error) {
@@ -382,7 +430,12 @@ export function App() {
 
   async function cancel() {
     if (!activeRun) return;
-    await api.json(`/api/runs/${activeRun.id}/cancel`, { method: "POST" });
+    try {
+      await api.json(`/api/runs/${activeRun.id}/cancel`, { method: "POST" });
+    } catch {
+      flash("backend unreachable");
+      return;
+    }
     setBusy(false);
   }
 
@@ -393,6 +446,7 @@ export function App() {
       await api.json(`/api/runs/${activeRun.id}/input`, { method: "POST", body: JSON.stringify({ text }) });
     } catch {
       flash("backend unreachable");
+      return;
     }
     if (chatId) {
       setChats((prev) =>
@@ -419,47 +473,67 @@ export function App() {
 
   async function saveProjectWorkspace(workspace: string) {
     if (!project) return;
-    const next = await api.json<Project>(`/api/projects/${project.id}`, {
-      method: "PUT",
-      body: JSON.stringify({ name: project.name, workspace }),
-    });
-    setProjects((prev) => prev.map((p) => (p.id === next.id ? next : p)));
+    try {
+      const next = await api.json<Project>(`/api/projects/${project.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ name: project.name, workspace }),
+      });
+      setProjects((prev) => prev.map((p) => (p.id === next.id ? next : p)));
+    } catch {
+      /* debounced keystroke — ignore transient failures */
+    }
   }
 
   async function removeChat(id: string) {
-    await api.json(`/api/chats/${id}`, { method: "DELETE" });
+    try {
+      await api.json(`/api/chats/${id}`, { method: "DELETE" });
+    } catch {
+      flash("couldn't delete chat");
+      return;
+    }
     setChats((prev) => prev.filter((c) => c.id !== id));
     if (chatId === id) setChatId(null);
   }
 
   async function deleteMessage(id: string) {
     if (!chatId) return;
-    const res = await api.json<{ ok: boolean; chat?: Chat }>(`/api/chats/${chatId}/messages/${id}`, { method: "DELETE" });
-    if (res.ok) {
-      setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, messages: c.messages.filter((m) => m.id !== id) } : c)));
-      flash("message deleted");
+    try {
+      const res = await api.json<{ ok: boolean; chat?: Chat }>(`/api/chats/${chatId}/messages/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, messages: c.messages.filter((m) => m.id !== id) } : c)));
+        flash("message deleted");
+      }
+    } catch {
+      flash("couldn't delete message");
     }
     setConfirmDelete(null);
   }
 
-  async function saveEdit(id: string) {
-    if (!chatId) return;
+  async function saveEdit(id: string): Promise<boolean> {
+    if (!chatId) return false;
     const content = editText.trim();
-    if (!content) return;
-    const res = await api.json<{ ok: boolean; chat?: Chat }>(`/api/chats/${chatId}/messages/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ content }),
-    });
-    if (res.ok && res.chat) {
-      setChats((prev) => prev.map((c) => (c.id === chatId ? res.chat! : c)));
-      setEditingMsg(null);
-      flash("message updated");
+    if (!content) return false;
+    try {
+      const res = await api.json<{ ok: boolean; chat?: Chat }>(`/api/chats/${chatId}/messages/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ content }),
+      });
+      if (res.ok && res.chat) {
+        setChats((prev) => prev.map((c) => (c.id === chatId ? res.chat! : c)));
+        setEditingMsg(null);
+        flash("message updated");
+        return true;
+      }
+    } catch {
+      flash("couldn't save edit");
     }
+    return false;
   }
 
   function flash(text: string) {
     setToast(text);
-    window.setTimeout(() => setToast(""), 1800);
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(""), 1800);
   }
 
   async function copyText(text: string) {
@@ -475,29 +549,41 @@ export function App() {
     if (!chat) return;
     const lastUser = [...chat.messages].reverse().find((m) => m.role === "user");
     if (!lastUser) return;
-    await launch(lastUser.content);
+    await launch(lastUser.content, lastUser.attachments || []);
   }
 
   async function resendEdited(id: string) {
     const content = editText.trim();
     if (!content) return;
-    await saveEdit(id);
-    await launch(content);
+    const ok = await saveEdit(id);
+    if (!ok) return;
+    const msg = chat?.messages.find((m) => m.id === id);
+    await launch(content, msg?.attachments || []);
   }
 
   async function renameChat(title: string) {
     if (!chatId) return;
-    const next = await api.json<Chat>(`/api/chats/${chatId}`, { method: "PATCH", body: JSON.stringify({ title }) });
-    setChats((prev) => prev.map((c) => (c.id === next.id ? { ...c, ...next } : c)));
+    const nextTitle = title.trim();
+    if (!nextTitle) return;
+    try {
+      const next = await api.json<Chat>(`/api/chats/${chatId}`, { method: "PATCH", body: JSON.stringify({ title: nextTitle }) });
+      setChats((prev) => prev.map((c) => (c.id === next.id ? { ...c, ...next } : c)));
+    } catch {
+      flash("couldn't rename");
+    }
     setRenaming(false);
   }
 
   async function pinChat(c: Chat) {
-    const next = await api.json<Chat>(`/api/chats/${c.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ pinned: !c.pinned }),
-    });
-    setChats((prev) => prev.map((x) => (x.id === next.id ? { ...x, ...next } : x)));
+    try {
+      const next = await api.json<Chat>(`/api/chats/${c.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ pinned: !c.pinned }),
+      });
+      setChats((prev) => prev.map((x) => (x.id === next.id ? { ...x, ...next } : x)));
+    } catch {
+      flash("couldn't update chat");
+    }
   }
 
   async function onPickFiles(list: FileList | null) {
@@ -505,24 +591,36 @@ export function App() {
     let id = chatId;
     if (!id) {
       if (!projectId) return;
-      const created = await api.json<Chat>("/api/chats", {
-        method: "POST",
-        body: JSON.stringify({ project_id: projectId, title: "New chat" }),
-      });
-      id = created.id;
-      setChats((prev) => [created, ...prev]);
-      setChatId(id);
+      try {
+        const created = await api.json<Chat>("/api/chats", {
+          method: "POST",
+          body: JSON.stringify({ project_id: projectId, title: "New chat" }),
+        });
+        id = created.id;
+        setChats((prev) => [created, ...prev]);
+        setChatId(id);
+      } catch {
+        flash("couldn't create chat");
+        return;
+      }
     }
     const uploaded: Attachment[] = [];
-    for (const file of Array.from(list)) {
-      const body = new FormData();
-      body.append("file", file);
-      const res = await fetch(`/api/chats/${id}/upload`, { method: "POST", body });
-      const data = (await res.json()) as Attachment & { error?: string };
-      if (!data.error) uploaded.push({ name: data.name, path: data.path, size: data.size });
+    try {
+      for (const file of Array.from(list)) {
+        const body = new FormData();
+        body.append("file", file);
+        const res = await fetch(`/api/chats/${id}/upload`, { method: "POST", body });
+        if (!res.ok) throw new Error(`upload failed (${res.status})`);
+        const data = (await res.json()) as Attachment & { error?: string };
+        if (data.error) throw new Error(data.error);
+        uploaded.push({ name: data.name, path: data.path, size: data.size });
+      }
+    } catch {
+      flash("upload failed");
+    } finally {
+      if (fileRef.current) fileRef.current.value = "";
     }
     setFiles((prev) => [...prev, ...uploaded]);
-    if (fileRef.current) fileRef.current.value = "";
   }
 
   const composer = (
@@ -566,7 +664,7 @@ export function App() {
               stop
             </button>
           )}
-          <button className="solid" disabled={busy || !goal.trim()} onClick={() => launch()}>
+          <button className="solid" disabled={busy || runActive || !goal.trim()} onClick={() => launch()}>
             send
             <kbd>enter</kbd>
           </button>
@@ -614,7 +712,7 @@ export function App() {
     }
     const rid = m.run_id || "";
     const run = rid ? runs[rid] : null;
-    const runningMsg = !!rid && !m.content && (!run || ["running", "needs_input", "queued"].includes(run.status));
+    const runningMsg = !!rid && !m.content && run !== null && ["running", "needs_input", "queued"].includes(run.status);
     return (
       <div key={m.id} className="msg-row">
         <div className="turn">
@@ -643,13 +741,12 @@ export function App() {
               </div>
             </div>
           )}
-          {runningMsg && !m.content && (
+          {runningMsg && !m.content && !orchText[rid] && (
             <div className="typing"><span className="dot-mini" /><span className="dot-mini" /><span className="dot-mini" /> working…</div>
           )}
           {(m.content || run?.result) && (
             <div className="bubble them"><Markdown text={m.content || run?.result || ""} /></div>
           )}
-          {run?.error && <div className="msg">{run.error}</div>}
         </div>
         {!runningMsg && (
           <div className="msg-ops">
@@ -699,7 +796,7 @@ export function App() {
             {visibleChats.length === 0 && <div className="quiet">no chats yet</div>}
             {visibleChats.map((c) => (
               <div key={c.id} className={`run-item ${c.id === chatId ? "active" : ""}`}>
-                <button className="run-main" onClick={() => { setChatId(c.id); setPage("chat"); }}>
+                <button className="run-main" onClick={() => { setChatId(c.id); setPage("chat"); setFiles([]); }}>
                   <div className="g">{c.pinned ? "★ " : ""}{c.title || "New chat"}</div>
                   <div className="m">
                     <span>{c.messages.length} msgs</span>
@@ -865,7 +962,7 @@ export function App() {
           </main>
         )}
 
-        <aside className="panel right" hidden={activeAgents.length === 0 && page === "chat"}>
+        <aside className="panel right">
           <div className="section-head">
             <h3>swarm</h3>
             <span className="count">{activeAgents.length}</span>

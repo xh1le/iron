@@ -209,6 +209,11 @@ class Run:
                     self._persist()
                     return
                 content, tool_calls = await self._infer(messages, schemas)
+                if self.cancel.is_set():
+                    await self._set("cancelled")
+                    self.result = "cancelled"
+                    self._persist()
+                    return
                 if not tool_calls and _round == 1:
                     # Small models often narrate instead of calling tools.
                     # First round: force a single worker so the goal still executes.
@@ -354,7 +359,7 @@ class Run:
         calls = [c for c in calls if (c.get("function") or {}).get("name")]
         text = "".join(parts)
         if not calls:
-            calls = extract_text_tool_calls(text)
+            calls = extract_text_tool_calls(text, {"spawn_task", "finish", "ask_user", "memory_get", "memory_put"})
         return text, calls
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +61,11 @@ def load_settings() -> Settings:
         data = json.loads(path.read_text(encoding="utf-8"))
         return Settings.model_validate(data)
     except Exception:
+        try:
+            backup = path.with_name(f"config.json.corrupt-{int(time.time())}")
+            path.replace(backup)
+        except OSError:
+            pass
         return Settings()
 
 

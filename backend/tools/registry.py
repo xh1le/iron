@@ -109,7 +109,7 @@ async def _shell(args: dict[str, Any], ctx: ToolContext) -> str:
 
 
 async def _python(args: dict[str, Any], ctx: ToolContext) -> str:
-    return await exec_mod.run_python(_str(args, "code"), _int(args, "timeout", 30))
+    return await exec_mod.run_python(_str(args, "code"), _int(args, "timeout", 30), cwd=ctx.workspace)
 
 
 async def _memory_get(args: dict[str, Any], ctx: ToolContext) -> str:

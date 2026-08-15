@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from collections import defaultdict, deque
 from typing import Any
 
 
@@ -12,11 +11,10 @@ def now_ms() -> int:
 
 
 class EventBus:
-    """Fan-out bus: every websocket subscriber gets every event, plus a replay buffer per run."""
+    """Fan-out bus: every websocket subscriber gets every event."""
 
-    def __init__(self, replay: int = 400) -> None:
+    def __init__(self) -> None:
         self._subs: set[asyncio.Queue[dict[str, Any]]] = set()
-        self._replay: dict[str, deque[dict[str, Any]]] = defaultdict(lambda: deque(maxlen=replay))
         self._lock = asyncio.Lock()
 
     async def subscribe(self) -> asyncio.Queue[dict[str, Any]]:
@@ -31,9 +29,6 @@ class EventBus:
 
     async def emit(self, event: dict[str, Any]) -> None:
         event.setdefault("ts", now_ms())
-        run_id = event.get("run_id")
-        if run_id:
-            self._replay[str(run_id)].append(event)
         async with self._lock:
             targets = list(self._subs)
         for queue in targets:
@@ -48,9 +43,6 @@ class EventBus:
                     queue.put_nowait(event)
                 except asyncio.QueueFull:
                     pass
-
-    def replay(self, run_id: str) -> list[dict[str, Any]]:
-        return list(self._replay.get(run_id, ()))
 
     @staticmethod
     def dumps(event: dict[str, Any]) -> str:

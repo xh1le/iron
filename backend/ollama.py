@@ -86,6 +86,7 @@ class OllamaClient:
                     if res.status_code >= 400:
                         body = (await res.aread()).decode("utf-8", errors="replace")
                         raise ModelError(f"model error {res.status_code}: {body[:800]}")
+                    saw_chunk = False
                     async for line in res.aiter_lines():
                         if not line:
                             continue
@@ -97,7 +98,10 @@ class OllamaClient:
                             chunk = json.loads(line)
                         except json.JSONDecodeError:
                             continue
+                        saw_chunk = True
                         yield chunk
+                    if not saw_chunk:
+                        raise ModelError("model stream produced no data")
             except httpx.HTTPError as exc:
                 raise ModelError(f"model stream failed: {exc}") from exc
 
@@ -120,14 +124,31 @@ def extract_delta(chunk: dict[str, Any]) -> dict[str, Any]:
 
 
 def merge_tool_call_deltas(acc: dict[int, dict[str, Any]], deltas: list[dict[str, Any]]) -> None:
+    id_to_idx: dict[str, int] = {}
+    for idx, slot in acc.items():
+        if slot.get("id"):
+            id_to_idx[slot["id"]] = idx
+    next_idx = max(acc.keys(), default=-1) + 1
     for item in deltas:
-        idx = int(item.get("index") or 0)
-        slot = acc.setdefault(
-            idx,
-            {"id": "", "type": "function", "function": {"name": "", "arguments": ""}},
-        )
-        if item.get("id"):
-            slot["id"] = item["id"]
+        raw_idx = item.get("index")
+        try:
+            idx = int(raw_idx) if raw_idx is not None else None
+        except (TypeError, ValueError):
+            idx = None
+        cid = item.get("id")
+        if idx is None and cid and cid in id_to_idx:
+            idx = id_to_idx[cid]
+        elif idx is None:
+            idx = next_idx
+        if idx in acc:
+            slot = acc[idx]
+        else:
+            slot = {"id": "", "type": "function", "function": {"name": "", "arguments": ""}}
+            acc[idx] = slot
+        next_idx = max(next_idx, idx + 1)
+        if cid:
+            slot["id"] = cid
+            id_to_idx[cid] = idx
         fn = item.get("function") or {}
         if fn.get("name"):
             slot["function"]["name"] = slot["function"]["name"] + fn["name"]
