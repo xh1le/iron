@@ -108,18 +108,28 @@ export function App() {
 
   useEffect(() => {
     (async () => {
-      const s = await api.json<Settings>("/api/settings");
-      setSettings(s);
-      const m = await api.json<{ models: { name: string }[]; error?: string }>("/api/models");
-      setModels((m.models || []).map((x) => x.name));
-      setModelError(m.error || "");
-      const p = await api.json<{ projects: Project[]; active_project_id?: string }>("/api/projects");
-      setProjects(p.projects || []);
-      const pid = p.active_project_id || p.projects?.[0]?.id || "";
-      setProjectId(pid);
-      if (pid) {
-        const c = await api.json<{ chats: Chat[] }>(`/api/chats?project_id=${pid}`);
-        setChats(c.chats || []);
+      try {
+        const s = await api.json<Settings>("/api/settings");
+        setSettings(s);
+        const m = await api.json<{ models: { name: string }[]; error?: string }>("/api/models");
+        setModels((m.models || []).map((x) => x.name));
+        setModelError(m.error || "");
+        const p = await api.json<{ projects: Project[]; active_project_id?: string }>("/api/projects");
+        setProjects(p.projects || []);
+        const pid = p.active_project_id || p.projects?.[0]?.id || "";
+        setProjectId(pid);
+        if (pid) {
+          const c = await api.json<{ chats: Chat[] }>(`/api/chats?project_id=${pid}`);
+          setChats(c.chats || []);
+        }
+        const r = await api.json<{ runs: RunSnapshot[] }>("/api/runs");
+        setRuns((prev) => {
+          const next = { ...prev };
+          for (const run of r.runs || []) next[run.id] = { ...(next[run.id] || {}), ...run };
+          return next;
+        });
+      } catch {
+        /* backend not ready — ws + watchdog will recover */
       }
     })();
   }, []);
@@ -167,6 +177,8 @@ export function App() {
     setProjectId(id);
     setChatId(null);
     setPage("chat");
+    setEditingMsg(null);
+    setRenaming(false);
     await refreshChats(id);
   }
 
@@ -300,32 +312,38 @@ export function App() {
     const next = text.trim();
     if (!next || busy || !projectId) return;
     setBusy(true);
-    const run = await api.json<RunSnapshot & { chat?: Chat }>("/api/runs", {
-      method: "POST",
-      body: JSON.stringify({
-        goal: next,
-        workspace: project?.workspace || settings?.workspace,
-        model: settings?.model || undefined,
-        project_id: projectId,
-        chat_id: chatId,
-        attachments: files,
-      }),
-    });
-    if ((run as unknown as { error?: string }).error) {
-      setBusy(false);
-      return;
-    }
-    upsertRun(run);
-    if (run.chat) {
-      setChats((prev) => {
-        const rest = prev.filter((c) => c.id !== run.chat!.id);
-        return [run.chat!, ...rest];
+    try {
+      const run = await api.json<RunSnapshot & { chat?: Chat }>("/api/runs", {
+        method: "POST",
+        body: JSON.stringify({
+          goal: next,
+          workspace: project?.workspace || settings?.workspace,
+          model: settings?.model || undefined,
+          project_id: projectId,
+          chat_id: chatId,
+          attachments: files,
+        }),
       });
-      setChatId(run.chat.id);
+      if ((run as unknown as { error?: string }).error) {
+        flash("couldn't start run");
+        setBusy(false);
+        return;
+      }
+      upsertRun(run);
+      if (run.chat) {
+        setChats((prev) => {
+          const rest = prev.filter((c) => c.id !== run.chat!.id);
+          return [run.chat!, ...rest];
+        });
+        setChatId(run.chat.id);
+      }
+      setGoal("");
+      setFiles([]);
+      setOrchText((p) => ({ ...p, [run.id]: "" }));
+    } catch {
+      flash("backend unreachable — retrying…");
+      setBusy(false);
     }
-    setGoal("");
-    setFiles([]);
-    setOrchText((p) => ({ ...p, [run.id]: "" }));
   }
 
   async function cancel() {
@@ -336,15 +354,33 @@ export function App() {
 
   async function reply() {
     if (!activeRun || !input.trim()) return;
-    await api.json(`/api/runs/${activeRun.id}/input`, { method: "POST", body: JSON.stringify({ text: input }) });
+    const text = input.trim();
+    try {
+      await api.json(`/api/runs/${activeRun.id}/input`, { method: "POST", body: JSON.stringify({ text }) });
+    } catch {
+      flash("backend unreachable");
+    }
+    if (chatId) {
+      setChats((prev) =>
+        prev.map((c) =>
+          c.id === chatId
+            ? { ...c, messages: [...c.messages, { id: uid(), role: "user" as const, content: text, attachments: [], ts: Date.now() }] }
+            : c,
+        ),
+      );
+    }
     setAsks((p) => ({ ...p, [activeRun.id]: "" }));
     setInput("");
   }
 
   async function saveSettings(patch: Partial<Settings>) {
     if (!settings) return;
-    const next = await api.json<Settings>("/api/settings", { method: "PUT", body: JSON.stringify(patch) });
-    setSettings(next);
+    try {
+      const next = await api.json<Settings>("/api/settings", { method: "PUT", body: JSON.stringify(patch) });
+      setSettings(next);
+    } catch {
+      flash("couldn't save settings");
+    }
   }
 
   async function saveProjectWorkspace(workspace: string) {
@@ -544,7 +580,7 @@ export function App() {
     }
     const rid = m.run_id || "";
     const run = rid ? runs[rid] : null;
-    const runningMsg = !!rid && (!run || ["running", "needs_input", "queued"].includes(run.status));
+    const runningMsg = !!rid && !m.content && (!run || ["running", "needs_input", "queued"].includes(run.status));
     return (
       <div key={m.id} className="msg-row">
         <div className="turn">

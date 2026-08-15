@@ -17,16 +17,11 @@ function CodeBlock({ code }: { code: string }) {
   );
 }
 
-function Inline({ text }: { text: string }) {
-  return <span className="inline-code mono">{text}</span>;
-}
-
 export default function Markdown({ text }: { text: string }) {
-  const html = useMemo(() => marked.parse(text || "") as string, [text]);
-  // Custom code renderer: marked doesn't expose renderer hooks cleanly here,
-  // so we split on fences ourselves.
+  // Split on code fences ourselves so code blocks get chrome + copy button;
+  // everything else flows through marked.
   const parts = useMemo(() => {
-    const out: { kind: "md" | "code" | "inline"; text: string }[] = [];
+    const out: { kind: "md" | "code"; text: string }[] = [];
     const re = /```(\w*)\n([\s\S]*?)(?:```|$)/g;
     let last = 0;
     let m: RegExpExecArray | null;
@@ -51,5 +46,3 @@ export default function Markdown({ text }: { text: string }) {
     </div>
   );
 }
-
-export { Inline };

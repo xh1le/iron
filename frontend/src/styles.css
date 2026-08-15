@@ -465,7 +465,7 @@ code, .mono, kbd { font-family: "IBM Plex Mono", ui-monospace, monospace; }
 .settings input:focus, .settings select:focus { border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); }
 .toggle { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
 
-.side-tools { display: grid; gap: 8px; padding: 0 12px 10px; }
+.side-tools { display: grid; gap: 8px; padding: 0 12px 10px; position: relative; z-index: 5; }
 .solid.wide { width: 100%; justify-content: center; transition: all 0.18s var(--ease); }
 .solid.wide:hover { transform: translateY(-1px); }
 .search, .settings-grid input, .settings-grid select {

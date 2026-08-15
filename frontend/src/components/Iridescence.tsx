@@ -131,17 +131,21 @@ export default function Iridescence({
     const start = performance.now();
     const tick = () => {
       raf = requestAnimationFrame(tick);
-      resize();
-      mouse.x += (mouse.tx - mouse.x) * 0.08;
-      mouse.y += (mouse.ty - mouse.y) * 0.08;
-      const p = propsRef.current;
-      gl.uniform2f(uRes, canvas.width, canvas.height);
-      gl.uniform1f(uTime, (performance.now() - start) / 1000);
-      gl.uniform2f(uMouse, mouse.x, mouse.y);
-      gl.uniform3f(uColor, p.color[0], p.color[1], p.color[2]);
-      gl.uniform1f(uAmp, p.amplitude);
-      gl.uniform1f(uSpeed, p.speed);
-      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      try {
+        resize();
+        mouse.x += (mouse.tx - mouse.x) * 0.08;
+        mouse.y += (mouse.ty - mouse.y) * 0.08;
+        const p = propsRef.current;
+        gl.uniform2f(uRes, canvas.width, canvas.height);
+        gl.uniform1f(uTime, (performance.now() - start) / 1000);
+        gl.uniform2f(uMouse, mouse.x, mouse.y);
+        gl.uniform3f(uColor, p.color[0], p.color[1], p.color[2]);
+        gl.uniform1f(uAmp, p.amplitude);
+        gl.uniform1f(uSpeed, p.speed);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      } catch {
+        cancelAnimationFrame(raf);
+      }
     };
     tick();
 
