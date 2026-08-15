@@ -60,8 +60,8 @@ export default function Iridescence({
         float n2 = noise(p * 1.9  - t * 0.28);
         float n3 = n * 0.62 + n2 * 0.38;
 
-        float wave = sin(p.x * 1.25 + t * 0.9 + n3 * 2.2) * 0.5
-                   + sin(p.y * 1.1  - t * 0.65 + n3 * 1.6) * 0.5
+        float wave = sin(p.x * 1.25 + t * 0.9 + n3 * 2.2) * (0.35 + uAmp)
+                   + sin(p.y * 1.1  - t * 0.65 + n3 * 1.6) * (0.35 + uAmp)
                    + n3 * 0.45;
         wave = wave * 0.5 + 0.5;
 

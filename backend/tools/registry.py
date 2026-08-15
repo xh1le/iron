@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -11,10 +12,17 @@ Handler = Callable[[dict[str, Any], "ToolContext"], Awaitable[str]]
 
 
 class ToolContext:
-    def __init__(self, workspace: str, memory: Any, spawn: Callable[..., Awaitable[str]] | None = None) -> None:
+    def __init__(
+        self,
+        workspace: str,
+        memory: Any,
+        spawn: Callable[..., Awaitable[str]] | None = None,
+        cancel: asyncio.Event | None = None,
+    ) -> None:
         self.workspace = workspace
         self.memory = memory
         self.spawn = spawn
+        self.cancel = cancel
 
 
 class ToolSpec:
@@ -65,7 +73,7 @@ def _str(args: dict[str, Any], key: str, default: str = "") -> str:
 def _int(args: dict[str, Any], key: str, default: int) -> int:
     try:
         return int(args.get(key, default))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
 
 
@@ -79,15 +87,16 @@ def _bool(args: dict[str, Any], key: str, default: bool = False) -> bool:
 
 
 async def _read(args: dict[str, Any], ctx: ToolContext) -> str:
-    return fs.read_file(ctx.workspace, _str(args, "path"), _int(args, "offset", 1), _int(args, "limit", 400))
+    return await asyncio.to_thread(fs.read_file, ctx.workspace, _str(args, "path"), _int(args, "offset", 1), _int(args, "limit", 400))
 
 
 async def _write(args: dict[str, Any], ctx: ToolContext) -> str:
-    return fs.write_file(ctx.workspace, _str(args, "path"), _str(args, "content"))
+    return await asyncio.to_thread(fs.write_file, ctx.workspace, _str(args, "path"), _str(args, "content"))
 
 
 async def _edit(args: dict[str, Any], ctx: ToolContext) -> str:
-    return fs.edit_file(
+    return await asyncio.to_thread(
+        fs.edit_file,
         ctx.workspace,
         _str(args, "path"),
         _str(args, "old_string"),
@@ -97,19 +106,19 @@ async def _edit(args: dict[str, Any], ctx: ToolContext) -> str:
 
 
 async def _ls(args: dict[str, Any], ctx: ToolContext) -> str:
-    return fs.list_dir(ctx.workspace, _str(args, "path", "."), _str(args, "glob", "*"))
+    return await asyncio.to_thread(fs.list_dir, ctx.workspace, _str(args, "path", "."), _str(args, "glob", "*"))
 
 
 async def _search(args: dict[str, Any], ctx: ToolContext) -> str:
-    return fs.search_text(ctx.workspace, _str(args, "query"), _str(args, "path", "."), _str(args, "glob"))
+    return await asyncio.to_thread(fs.search_text, ctx.workspace, _str(args, "query"), _str(args, "path", "."), _str(args, "glob"))
 
 
 async def _shell(args: dict[str, Any], ctx: ToolContext) -> str:
-    return await shell_mod.run_shell(ctx.workspace, _str(args, "command"), _int(args, "timeout", 60))
+    return await shell_mod.run_shell(ctx.workspace, _str(args, "command"), _int(args, "timeout", 60), cancel=ctx.cancel)
 
 
 async def _python(args: dict[str, Any], ctx: ToolContext) -> str:
-    return await exec_mod.run_python(_str(args, "code"), _int(args, "timeout", 30), cwd=ctx.workspace)
+    return await exec_mod.run_python(_str(args, "code"), _int(args, "timeout", 30), cwd=ctx.workspace, cancel=ctx.cancel)
 
 
 async def _memory_get(args: dict[str, Any], ctx: ToolContext) -> str:

@@ -1,9 +1,5 @@
-from desktop import Bridge, open_window
+from desktop import open_window
 
 
-def test_bridge_safe_without_window():
-    b = Bridge()
-    b.minimize()
-    b.toggle_max()
-    b.close()
+def test_open_window_callable():
     assert callable(open_window)

@@ -82,7 +82,10 @@ def edit_file(root: str, path: str, old: str, new: str, replace_all: bool = Fals
     target = resolve_workspace(root, path)
     if not target.is_file():
         raise WorkspaceError(f"not found: {path}")
-    text = target.read_text(encoding="utf-8", errors="replace")
+    try:
+        text = target.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise WorkspaceError("file is not valid UTF-8 — refusing to edit") from exc
     if old == new:
         raise WorkspaceError("old and new are identical")
     count = text.count(old)

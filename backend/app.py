@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+import secrets
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import load_settings, merge_settings
@@ -25,6 +28,8 @@ def create_app() -> FastAPI:
     bus = EventBus()
     store = Store()
     engine = Engine(settings, bus, builtin_tools())
+    token = secrets.token_urlsafe(24)
+    print(f"iron: local token {token}", file=sys.stderr)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -45,16 +50,27 @@ def create_app() -> FastAPI:
         yield
 
     app = FastAPI(title="iron", version="0.1.0", lifespan=lifespan)
+    # Same-origin only: the frontend is served by this app (or proxied by vite in dev),
+    # so cross-origin requests get no CORS headers and are blocked by the browser.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=[],
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def require_token(request: Request, call_next):
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"} and request.url.path.startswith("/api/"):
+            if request.headers.get("X-Iron-Token") != token:
+                return JSONResponse({"error": "forbidden — missing local token"}, status_code=403)
+        return await call_next(request)
+
     app.state.settings = settings
     app.state.bus = bus
     app.state.engine = engine
     app.state.store = store
+    app.state.token = token
 
     def persist_run(run: Run) -> None:
         if not run.chat_id:
@@ -64,6 +80,10 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     async def health() -> dict[str, Any]:
         return {"ok": True, "name": "iron", "model": app.state.settings.resolved_model()}
+
+    @app.get("/api/bootstrap")
+    async def bootstrap() -> dict[str, Any]:
+        return {"token": app.state.token}
 
     @app.get("/api/settings")
     async def get_settings() -> dict[str, Any]:
@@ -125,7 +145,7 @@ def create_app() -> FastAPI:
 
     @app.delete("/api/chats/{chat_id}")
     async def delete_chat(chat_id: str) -> dict[str, Any]:
-        return {"ok": store.delete_chat(chat_id)}
+        return {"ok": await asyncio.to_thread(store.delete_chat, chat_id)}
 
     @app.delete("/api/chats/{chat_id}/messages/{message_id}")
     async def delete_message(chat_id: str, message_id: str) -> dict[str, Any]:
@@ -144,7 +164,7 @@ def create_app() -> FastAPI:
             return {"error": "not found"}
         data = await file.read()
         try:
-            return store.save_upload(chat_id, file.filename or "file", data)
+            return await asyncio.to_thread(store.save_upload, chat_id, file.filename or "file", data)
         except ValueError as exc:
             return {"error": str(exc)}
 
@@ -224,6 +244,9 @@ def create_app() -> FastAPI:
 
     @app.websocket("/ws")
     async def ws(socket: WebSocket) -> None:
+        if socket.query_params.get("token") != app.state.token:
+            await socket.close(code=4401)
+            return
         await socket.accept()
         queue = await bus.subscribe()
         try:

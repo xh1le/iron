@@ -30,25 +30,41 @@ def iron_health(url: str) -> bool:
         return False
 
 
-def free_port(host: str, start: int) -> int:
-    port = start
-    while port < start + 30:
+def free_port(host: str, start: int) -> int | None:
+    for port in range(start, start + 30):
         if not port_open(host, port):
             return port
-        port += 1
-    return start
+    return None
 
 
 def ensure_frontend() -> None:
-    dist = ROOT / "frontend" / "dist" / "index.html"
-    if dist.exists():
-        return
+    dist_index = ROOT / "frontend" / "dist" / "index.html"
+    if dist_index.exists():
+        src_dirs = [ROOT / "frontend" / "src", ROOT / "frontend"]
+        newest = dist_index.stat().st_mtime
+        stale = False
+        for folder in src_dirs:
+            if not folder.exists():
+                continue
+            for base, dirs, files in os.walk(folder):
+                dirs[:] = [d for d in dirs if d not in {"node_modules", "dist"} and not d.startswith(".")]
+                for f in files:
+                    p = Path(base) / f
+                    if p.stat().st_mtime > newest:
+                        stale = True
+                        break
+                if stale:
+                    break
+            if stale:
+                break
+        if not stale:
+            return
     print("building frontend…")
     subprocess.check_call(["npm", "install"], cwd=str(ROOT / "frontend"), shell=os.name == "nt")
     subprocess.check_call(["npm", "run", "build"], cwd=str(ROOT / "frontend"), shell=os.name == "nt")
 
 
-def start_server(host: str, port: int) -> None:
+def start_server(host: str, port: int, stop: threading.Event | None = None) -> None:
     import uvicorn
 
     config = uvicorn.Config(
@@ -59,13 +75,21 @@ def start_server(host: str, port: int) -> None:
         log_level="warning",
         reload=False,
     )
-    uvicorn.Server(config).run()
+    server = uvicorn.Server(config)
+    if stop is not None:
+        def watcher() -> None:
+            stop.wait()
+            server.should_exit = True
+
+        threading.Thread(target=watcher, daemon=True).start()
+    server.run()
 
 
 def supervise(host: str, port: int) -> None:
     backoff = 1.0
     while True:
-        t = threading.Thread(target=start_server, args=(host, port), daemon=True)
+        stop = threading.Event()
+        t = threading.Thread(target=start_server, args=(host, port, stop), daemon=True)
         t.start()
         if not wait_ready(host, port, seconds=15):
             print(f"iron: waiting for {host}:{port} ({backoff:.0f}s)", file=sys.stderr)
@@ -86,6 +110,8 @@ def supervise(host: str, port: int) -> None:
                     break
             time.sleep(2)
         print(f"iron: restarting {host}:{port} …", file=sys.stderr)
+        stop.set()
+        t.join(timeout=5)
         time.sleep(backoff)
         backoff = min(backoff * 1.7, 20)
 
@@ -96,7 +122,7 @@ def wait_ready(host: str, port: int, seconds: float = 12.0) -> bool:
         if iron_health(f"http://{host}:{port}"):
             return True
         time.sleep(0.12)
-    return port_open(host, port)
+    return False
 
 
 def main() -> None:
@@ -128,7 +154,11 @@ def main() -> None:
     owned = False
 
     if port_open(host, port) and not iron_health(url):
-        port = free_port(host, port + 1)
+        found = free_port(host, port + 1)
+        if found is None:
+            print(f"iron: no free port near {port} — is something occupying the range?", file=sys.stderr)
+            sys.exit(1)
+        port = found
         url = f"http://{host}:{port}"
 
     if not port_open(host, port):

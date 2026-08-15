@@ -15,10 +15,30 @@ export default function Confirm({ open, title, body, confirmLabel = "delete", on
 
   useEffect(() => {
     if (!open) return;
+    const prev = document.activeElement as HTMLElement | null;
     setBusy(false);
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "Tab") {
+        const focusables = ref.current?.querySelectorAll<HTMLElement>("button, input, select, textarea, a[href]") || [];
+        if (!focusables.length) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        const active = document.activeElement;
+        if (e.shiftKey && (active === first || !ref.current?.contains(active))) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && active === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      prev?.focus?.();
+    };
   }, [open, onClose]);
 
   useEffect(() => { if (open) ref.current?.focus(); }, [open]);

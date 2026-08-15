@@ -28,3 +28,11 @@ python run.py --dev    # vite + reload
 ## Config
 
 Settings live in the UI and `~/.iron/config.json`. Default workspace is `D:\iron\workspace`.
+
+## Security
+
+The API binds to `127.0.0.1` by default and generates a random per-launch token.
+All mutating endpoints and the websocket require it; the UI fetches it from
+`/api/bootstrap` automatically. CORS is disabled for cross-origin requests, so
+other websites cannot drive the local agent. The token is printed to the server
+console if you need it for scripting.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import threading
@@ -22,6 +23,11 @@ def _id(prefix: str) -> str:
 def _safe(name: str) -> str:
     cleaned = SAFE_NAME.sub("_", Path(name).name).strip("._") or "file"
     return cleaned[:120]
+
+
+def _guard_chat_id(chat_id: str) -> None:
+    if not chat_id or ".." in chat_id or any(c in chat_id for c in "/\\"):
+        raise ValueError("invalid chat id")
 
 
 class Store:
@@ -73,7 +79,10 @@ class Store:
 
     def _save(self) -> None:
         tmp = self.path.with_name(f"{self.path.name}.{uuid.uuid4().hex}.tmp")
-        tmp.write_text(json.dumps(self._data, indent=2, ensure_ascii=False), encoding="utf-8")
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(self._data, fh, indent=2, ensure_ascii=False)
+            fh.flush()
+            os.fsync(fh.fileno())
         tmp.replace(self.path)
 
     def snapshot(self) -> dict[str, Any]:
@@ -279,6 +288,7 @@ class Store:
         return None
 
     def save_upload(self, chat_id: str, filename: str, data: bytes) -> dict[str, Any]:
+        _guard_chat_id(chat_id)
         if len(data) > MAX_UPLOAD:
             raise ValueError("file too large (25MB max)")
         folder = self.uploads / chat_id
@@ -297,6 +307,7 @@ class Store:
         }
 
     def upload_dir(self, chat_id: str) -> Path:
+        _guard_chat_id(chat_id)
         path = self.uploads / chat_id
         path.mkdir(parents=True, exist_ok=True)
         return path

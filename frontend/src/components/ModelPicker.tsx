@@ -53,7 +53,7 @@ export default function ModelPicker({ value, options, onChange, placeholder = "a
     window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", onScroll);
     return () => { window.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", onScroll); };
-  }, [open, options.length]);
+  }, [open, options, placeholder]);
 
   const all = ["", ...options];
 
@@ -89,7 +89,13 @@ export default function ModelPicker({ value, options, onChange, placeholder = "a
 
   return (
     <div ref={ref} className={`model-picker ${open ? "open" : ""}`}>
-      <button type="button" className="model-trigger" onClick={() => { setOpen((v) => !v); if (!open) onOpen?.(); }} aria-haspopup="listbox" aria-expanded={open}>
+      <button type="button" className="model-trigger" onClick={() => {
+        setOpen((v) => {
+          const next = !v;
+          if (next) onOpen?.();
+          return next;
+        });
+      }} aria-haspopup="listbox" aria-expanded={open}>
         <span className="dot-mini" aria-hidden="true" />
         <span className="model-label">{value || placeholder}</span>
         <span className={`chev ${open ? "up" : ""}`} aria-hidden="true">▾</span>

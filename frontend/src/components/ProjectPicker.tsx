@@ -37,7 +37,7 @@ export default function ProjectPicker({ projects, value, onChange, onDelete, onN
                 {p.id === value && <span className="check">✓</span>}
               </button>
               {projects.length > 1 && (
-                <button type="button" className="icon-mini danger" title="delete project" onClick={(e) => { e.stopPropagation(); setOpen(false); onDelete(p.id); }}>
+                <button type="button" className="icon-mini danger" aria-label={`delete project ${p.name}`} title="delete project" onClick={(e) => { e.stopPropagation(); setOpen(false); onDelete(p.id); }}>
                   ×
                 </button>
               )}

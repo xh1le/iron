@@ -146,7 +146,12 @@ class Agent:
             },
         ]
         schemas = self.tools.schemas(self._tool_names())
-        ctx = ToolContext(self.workspace, self.memory, self._spawn if self.depth < self.settings.max_depth else None)
+        ctx = ToolContext(
+            self.workspace,
+            self.memory,
+            self._spawn if self.depth < self.settings.max_depth else None,
+            cancel=self.cancel,
+        )
 
         try:
             content = ""
@@ -224,6 +229,14 @@ class Agent:
         while total > budget and len(messages) > 6:
             dropped = messages.pop(2)
             total -= len(str(dropped.get("content") or ""))
+            if dropped.get("role") == "assistant":
+                call_ids = {c.get("id") for c in (dropped.get("tool_calls") or []) if c.get("id")}
+                while call_ids and len(messages) > 6 and messages[2].get("role") == "tool":
+                    m = messages[2]
+                    if m.get("tool_call_id") not in call_ids:
+                        break
+                    messages.pop(2)
+                    total -= len(str(m.get("content") or ""))
 
     async def _infer(self, messages: list[dict[str, Any]], schemas: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
         acc_calls: dict[int, dict[str, Any]] = {}

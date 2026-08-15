@@ -23,11 +23,17 @@ const SUGGESTIONS = [
   { label: "split a real task", goal: "Create two small Python modules (math_utils.py and string_utils.py) with one function each, plus a README explaining them." },
 ];
 
+let apiToken = "";
+
 const api = {
   async json<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await fetch(path, {
       ...init,
-      headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+      headers: {
+        "Content-Type": "application/json",
+        ...(apiToken ? { "X-Iron-Token": apiToken } : {}),
+        ...(init?.headers || {}),
+      },
     });
     if (!res.ok) throw new Error(`request failed (${res.status})`);
     return res.json() as Promise<T>;
@@ -116,6 +122,8 @@ export function App() {
   useEffect(() => {
     (async () => {
       try {
+        const b = await api.json<{ token: string }>("/api/bootstrap");
+        apiToken = b.token || "";
         const s = await api.json<Settings>("/api/settings");
         setSettings(s);
         await loadModels(3);
@@ -145,7 +153,7 @@ export function App() {
     let stopped = false;
     const connect = () => {
       const proto = location.protocol === "https:" ? "wss" : "ws";
-      ws = new WebSocket(`${proto}://${location.host}/ws`);
+      ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(apiToken)}`);
       ws.onopen = () => {
         setLive(true);
         loadModels(1);
@@ -202,6 +210,10 @@ export function App() {
 
   async function resync() {
     try {
+      if (!apiToken) {
+        const b = await api.json<{ token: string }>("/api/bootstrap");
+        apiToken = b.token || "";
+      }
       const r = await api.json<{ runs: RunSnapshot[] }>("/api/runs");
       setRuns((prev) => {
         const next = { ...prev };
@@ -609,7 +621,11 @@ export function App() {
       for (const file of Array.from(list)) {
         const body = new FormData();
         body.append("file", file);
-        const res = await fetch(`/api/chats/${id}/upload`, { method: "POST", body });
+        const res = await fetch(`/api/chats/${id}/upload`, {
+          method: "POST",
+          body,
+          headers: apiToken ? { "X-Iron-Token": apiToken } : undefined,
+        });
         if (!res.ok) throw new Error(`upload failed (${res.status})`);
         const data = (await res.json()) as Attachment & { error?: string };
         if (data.error) throw new Error(data.error);
@@ -631,7 +647,7 @@ export function App() {
             <span key={f.path} className="attach">
               {f.name}
               <em>{prettySize(f.size)}</em>
-              <button type="button" onClick={() => setFiles((prev) => prev.filter((x) => x.path !== f.path))}>
+              <button type="button" aria-label={`remove ${f.name}`} onClick={() => setFiles((prev) => prev.filter((x) => x.path !== f.path))}>
                 ×
               </button>
             </span>
@@ -652,7 +668,7 @@ export function App() {
       />
       <div className="row">
         <div className="meta">
-          <button className="icon-btn" type="button" onClick={() => fileRef.current?.click()} title="attach files">
+          <button className="icon-btn" type="button" aria-label="attach files" title="attach files" onClick={() => fileRef.current?.click()}>
             +
           </button>
           <input ref={fileRef} type="file" multiple hidden onChange={(e) => onPickFiles(e.target.files)} />
@@ -703,9 +719,9 @@ export function App() {
             )}
           </div>
           <div className="msg-ops">
-            <button type="button" title="edit & resend" onClick={() => { setEditingMsg(m.id); setEditText(m.content); }}>✎</button>
-            <button type="button" title="copy" onClick={() => copyText(m.content)}>⧉</button>
-            <button type="button" className="danger" title="delete" onClick={() => setConfirmDelete({ messageId: m.id })}>×</button>
+            <button type="button" aria-label="edit & resend" title="edit & resend" onClick={() => { setEditingMsg(m.id); setEditText(m.content); }}>✎</button>
+            <button type="button" aria-label="copy" title="copy" onClick={() => copyText(m.content)}>⧉</button>
+            <button type="button" className="danger" aria-label="delete message" title="delete" onClick={() => setConfirmDelete({ messageId: m.id })}>×</button>
           </div>
         </div>
       );
@@ -750,9 +766,9 @@ export function App() {
         </div>
         {!runningMsg && (
           <div className="msg-ops">
-            <button type="button" title="regenerate" onClick={regenerate}>↻</button>
-            <button type="button" title="copy" onClick={() => copyText(m.content || run?.result || "")}>⧉</button>
-            <button type="button" className="danger" title="delete" onClick={() => setConfirmDelete({ messageId: m.id })}>×</button>
+            <button type="button" aria-label="regenerate" title="regenerate" onClick={regenerate}>↻</button>
+            <button type="button" aria-label="copy" title="copy" onClick={() => copyText(m.content || run?.result || "")}>⧉</button>
+            <button type="button" className="danger" aria-label="delete message" title="delete" onClick={() => setConfirmDelete({ messageId: m.id })}>×</button>
           </div>
         )}
       </div>
@@ -804,10 +820,10 @@ export function App() {
                   </div>
                 </button>
                 <div className="run-ops">
-                  <button type="button" onClick={() => pinChat(c)} title="pin">
+                  <button type="button" aria-label={c.pinned ? "unpin" : "pin"} title="pin" onClick={() => pinChat(c)}>
                     ★
                   </button>
-                  <button type="button" onClick={() => setConfirmDelete({ chatId: c.id })} title="delete">
+                  <button type="button" aria-label="delete chat" title="delete" onClick={() => setConfirmDelete({ chatId: c.id })}>
                     ×
                   </button>
                 </div>
@@ -940,7 +956,7 @@ export function App() {
                     ) : (
                       <div className="title-row">
                         <h2>{chat.title || "New chat"}</h2>
-                        <button type="button" className="icon-mini" title="rename" onClick={() => { setRenaming(true); setRenameText(chat.title || ""); }}>✎</button>
+                        <button type="button" className="icon-mini" aria-label="rename chat" title="rename" onClick={() => { setRenaming(true); setRenameText(chat.title || ""); }}>✎</button>
                       </div>
                     )}
                   </div>
