@@ -147,6 +147,8 @@ export function App() {
   const streamRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const stickRef = useRef(true);
+  const wsTimer = useRef<number | undefined>(undefined);
   const toastTimer = useRef<number | undefined>(undefined);
   const projectIdRef = useRef(projectId);
   useEffect(() => {
@@ -159,7 +161,6 @@ export function App() {
     const q = query.trim().toLowerCase();
     return chats
       .filter((c) => c.project_id === projectId)
-      .filter((c) => c.messages.length > 0 || c.pinned || c.id === chatId)
       .filter((c) => !q || c.title.toLowerCase().includes(q) || c.messages.some((m) => m.content.toLowerCase().includes(q)))
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updated_at - a.updated_at);
   }, [chats, projectId, query, chatId]);
@@ -239,7 +240,23 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    streamRef.current?.scrollTo({ top: streamRef.current.scrollHeight });
+    const el = streamRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      stickRef.current = atBottom;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    stickRef.current = true;
+  }, [chatId]);
+
+  useEffect(() => {
+    const el = streamRef.current;
+    if (el && stickRef.current) el.scrollTo({ top: el.scrollHeight });
   }, [chatId, chat?.messages, orchText, asks, traces]);
 
   useEffect(() => {
@@ -261,10 +278,12 @@ export function App() {
       if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "c") return;
       const target = e.target as HTMLElement | null;
       const editable = !!target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
-      if (editable && !e.shiftKey) {
+      if (editable) {
         const el = target as HTMLInputElement;
         const selected = "selectionStart" in el ? el.selectionStart !== el.selectionEnd : !!window.getSelection()?.toString();
         if (selected) return; // preserve copy in text fields
+      } else if (window.getSelection()?.toString()) {
+        return; // copying selected message text — don't cancel the run
       }
       if (!activeRun || !["running", "needs_input", "queued"].includes(activeRun.status)) return;
       e.preventDefault();
@@ -315,26 +334,31 @@ export function App() {
     if (!opts.includes(cur)) saveSettings({ reasoning_level: "auto" });
   }, [settings?.model]);
 
+  const chatSeq = useRef(0);
+  const fileSeq = useRef(0);
+
   async function refreshChats(pid = projectId) {
     if (!pid) return;
+    const seq = ++chatSeq.current;
     try {
       const c = await api.json<{ chats: Chat[] }>(`/api/chats?project_id=${pid}`);
-      setChats(c.chats || []);
+      if (seq === chatSeq.current) setChats(c.chats || []);
     } catch {
       /* backend not ready */
     }
   }
 
   async function loadProjectFiles(pid = projectId) {
+    const seq = ++fileSeq.current;
     if (!pid) {
-      setProjectFiles([]);
+      if (seq === fileSeq.current) setProjectFiles([]);
       return;
     }
     try {
       const res = await api.json<{ files: { name: string; is_dir: boolean; size: number; modified: number }[]; workspace: string }>(`/api/projects/${pid}/files`);
-      setProjectFiles(res.files || []);
+      if (seq === fileSeq.current) setProjectFiles(res.files || []);
     } catch {
-      setProjectFiles([]);
+      if (seq === fileSeq.current) setProjectFiles([]);
     }
   }
 
@@ -517,7 +541,23 @@ export function App() {
     setPage("chat");
     setGoal("");
     setFiles([]);
+    setEditingMsg(null);
+    setEditText("");
+    setRenaming(false);
+    setRenameText("");
+    stickRef.current = true;
     boxRef.current?.focus();
+  }
+
+  function openChat(id: string) {
+    setChatId(id);
+    setPage("chat");
+    setFiles([]);
+    setEditingMsg(null);
+    setEditText("");
+    setRenaming(false);
+    setRenameText("");
+    stickRef.current = true;
   }
 
   async function newProject(name: string) {
@@ -717,15 +757,20 @@ export function App() {
 
   async function saveProjectWorkspace(workspace: string) {
     if (!project) return;
-    try {
-      const next = await api.json<Project>(`/api/projects/${project.id}`, {
-        method: "PUT",
-        body: JSON.stringify({ name: project.name, workspace }),
-      });
-      setProjects((prev) => prev.map((p) => (p.id === next.id ? next : p)));
-    } catch {
-      /* debounced keystroke — ignore transient failures */
-    }
+    const pid = project.id;
+    const name = project.name;
+    if (wsTimer.current) window.clearTimeout(wsTimer.current);
+    wsTimer.current = window.setTimeout(async () => {
+      try {
+        const next = await api.json<Project>(`/api/projects/${pid}`, {
+          method: "PUT",
+          body: JSON.stringify({ name, workspace }),
+        });
+        setProjects((prev) => prev.map((p) => (p.id === next.id ? next : p)));
+      } catch {
+        /* debounced keystroke — ignore transient failures */
+      }
+    }, 400);
   }
 
   async function removeChat(id: string) {
@@ -880,7 +925,8 @@ export function App() {
         break;
       case "rename":
         if (arg && chatId) renameChat(arg);
-        else setRenaming(true);
+        else if (chatId) setRenaming(true);
+        else flash("open a chat first");
         break;
       case "pin":
         if (chat) pinChat(chat);
@@ -974,7 +1020,7 @@ export function App() {
         </div>
       )}
       {cmdOpen && (
-        <CommandMenu query={goal.slice(1)} selected={cmdIdx} hasChat={!!chat} onHover={setCmdSelected} />
+        <CommandMenu query={goal.slice(1)} selected={cmdIdx} hasChat={!!chat} onHover={setCmdSelected} onPick={(c) => runCommand(c, "/" + c.name)} />
       )}
       <textarea
         ref={boxRef}
@@ -987,7 +1033,7 @@ export function App() {
             if (e.key === "ArrowUp") { e.preventDefault(); setCmdSelected((s) => (s - 1 + cmdList.length) % cmdList.length); return; }
             if (e.key === "Tab") { e.preventDefault(); setGoal("/" + cmdList[cmdIdx].name + " "); setCmdSelected(0); return; }
             if (e.key === "Enter") { e.preventDefault(); runCommand(cmdList[cmdIdx], goal.slice(1)); return; }
-            if (e.key === "Escape") { e.preventDefault(); setGoal(""); return; }
+            if (e.key === "Escape") { e.preventDefault(); setGoal(goal.replace(/^\//, "")); return; }
           }
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
@@ -1008,7 +1054,7 @@ export function App() {
           {goal.trim() && (
             <span className={`est mono ${goalHot ? "hot" : ""}`}>~{fmtTok(goalEst)}</span>
           )}
-          {activeRun && (activeRun.status === "running" || activeRun.status === "needs_input") && (
+          {activeRun && ["running", "needs_input", "queued"].includes(activeRun.status) && (
             <button className="ghost danger" onClick={cancel}>
               stop
               <kbd>ctrl c</kbd>
@@ -1098,7 +1144,7 @@ export function App() {
             <div className="ask">
               {asks[rid]}
               <div className="row" style={{ marginTop: 10 }}>
-                <input className="reply" value={input} onChange={(e) => setInput(e.target.value)} placeholder="reply…" />
+                <input className="reply" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); reply(); } }} placeholder="reply… (enter to send)" autoFocus />
                 <button className="solid" onClick={reply}>send</button>
               </div>
             </div>
@@ -1205,7 +1251,7 @@ export function App() {
                       .filter((c) => c.pinned)
                       .map((c) => (
                         <div key={c.id} role="listitem" className={`run-item ${c.id === chatId ? "active" : ""} pinned`}>
-                          <button className="run-main" onClick={() => { setChatId(c.id); setPage("chat"); setFiles([]); }} title={c.title || "New chat"}>
+                          <button className="run-main" onClick={() => openChat(c.id)} title={c.title || "New chat"}>
                             <div className="g">{c.title || "New chat"}</div>
                             <div className="m">
                               <span>{c.messages.length} msgs</span>
@@ -1230,7 +1276,7 @@ export function App() {
                     .filter((c) => !c.pinned)
                     .map((c) => (
                       <div key={c.id} role="listitem" className={`run-item ${c.id === chatId ? "active" : ""}`}>
-                        <button className="run-main" onClick={() => { setChatId(c.id); setPage("chat"); setFiles([]); }} title={c.title || "New chat"}>
+                        <button className="run-main" onClick={() => openChat(c.id)} title={c.title || "New chat"}>
                           <div className="g">{c.title || "New chat"}</div>
                           <div className="m">
                             <span>{c.messages.length} msgs</span>

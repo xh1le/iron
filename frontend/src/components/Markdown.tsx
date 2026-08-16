@@ -7,7 +7,7 @@ marked.setOptions({ breaks: true, gfm: true });
 const ALLOWED_TAGS = new Set([
   "A", "B", "STRONG", "EM", "I", "U", "S", "DEL", "CODE", "PRE", "P", "BR",
   "UL", "OL", "LI", "H1", "H2", "H3", "H4", "H5", "H6", "BLOCKQUOTE", "HR",
-  "TABLE", "THEAD", "TBODY", "TR", "TH", "TD", "SPAN", "DIV", "IMG", "SUP", "SUB",
+  "TABLE", "THEAD", "TBODY", "TR", "TH", "TD", "SPAN", "DIV", "IMG", "SUP", "SUB", "INPUT",
 ]);
 
 function sanitizeHtml(html: string): string {
@@ -25,7 +25,8 @@ function sanitizeHtml(html: string): string {
         continue;
       }
       if (name === "href" || name === "src") {
-        const v = attr.value.trim();
+        // browsers strip ASCII tab/LF/CR before scheme detection — do the same
+        const v = attr.value.trim().replace(/[\t\n\r]/g, "");
         if (/^\s*(javascript|data|vbscript):/i.test(v)) {
           el.removeAttribute(attr.name);
         }
@@ -35,6 +36,10 @@ function sanitizeHtml(html: string): string {
       el.setAttribute("rel", "noopener noreferrer");
       el.setAttribute("target", "_blank");
     }
+    if (el.tagName === "INPUT") {
+      el.setAttribute("disabled", "");
+      el.setAttribute("type", "checkbox");
+    }
   }
   return doc.body.innerHTML;
 }
@@ -42,7 +47,7 @@ function sanitizeHtml(html: string): string {
 export default function Markdown({ text }: { text: string }) {
   const parts = useMemo(() => {
     const out: { kind: "md" | "code"; text: string; lang: string }[] = [];
-    const re = /```(\w*)\n([\s\S]*?)(?:```|$)/g;
+    const re = /```([^\s`]*)\n?([\s\S]*?)(?:```|$)/g;
     let last = 0;
     let m: RegExpExecArray | null;
     while ((m = re.exec(text || ""))) {

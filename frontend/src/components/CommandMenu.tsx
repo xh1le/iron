@@ -27,9 +27,10 @@ type MenuProps = {
   selected: number;
   hasChat: boolean;
   onHover: (i: number) => void;
+  onPick: (c: Command) => void;
 };
 
-export default function CommandMenu({ query, selected, hasChat, onHover }: MenuProps) {
+export default function CommandMenu({ query, selected, hasChat, onHover, onPick }: MenuProps) {
   const list = matchCommands(query, hasChat);
 
   return (
@@ -42,6 +43,7 @@ export default function CommandMenu({ query, selected, hasChat, onHover }: MenuP
           key={c.name}
           className={`cmd-item ${i === selected ? "sel" : ""}`}
           onMouseEnter={() => onHover(i)}
+          onClick={() => onPick(c)}
         >
           <span className="cmd-name">/{c.name}</span>
           {c.arg && <span className="cmd-arg">&lt;{c.arg}&gt;</span>}

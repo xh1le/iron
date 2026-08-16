@@ -51,7 +51,7 @@ export function getReasoningOptions(model: string): string[] {
 export default function ReasoningPicker({ value, options, onChange, disabled }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number | string; bottom: number | string; left: number; width: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number | string; bottom: number | string; left: number; width: number; maxHeight: number } | null>(null);
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -84,8 +84,8 @@ export default function ReasoningPicker({ value, options, onChange, disabled }: 
     );
     const width = Math.min(Math.max(176, longest * 7.2 + 44), 260, window.innerWidth - 24);
     const left = Math.min(Math.max(8, r.left), window.innerWidth - width - 8);
-    if (below) setPos({ top: r.bottom + 8, bottom: "auto", left, width });
-    else setPos({ top: "auto", bottom: window.innerHeight - r.top + 8, left, width });
+    if (below) setPos({ top: r.bottom + 8, bottom: "auto", left, width, maxHeight: Math.max(120, window.innerHeight - r.bottom - 8) });
+    else setPos({ top: "auto", bottom: window.innerHeight - r.top + 8, left, width, maxHeight: Math.max(120, r.top - 8) });
     const onScroll = (e: Event) => {
       const t = e.target as Element | null;
       if (t instanceof Element && t.closest(".model-menu")) return;
@@ -113,6 +113,7 @@ export default function ReasoningPicker({ value, options, onChange, disabled }: 
           right: "auto",
           top: pos.top,
           bottom: pos.bottom,
+          maxHeight: pos.maxHeight,
           zIndex: 9999,
           opacity: 1,
           transform: "none",

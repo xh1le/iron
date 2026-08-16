@@ -22,7 +22,7 @@ export default function ProjectPicker({ projects, value, onChange, onDelete, onN
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number | string; bottom: number | string; left: number; width: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number | string; bottom: number | string; left: number; width: number; maxHeight: number } | null>(null);
   const current = projects.find((p) => p.id === value);
 
   useEffect(() => {
@@ -70,9 +70,9 @@ export default function ProjectPicker({ projects, value, onChange, onDelete, onN
     const width = Math.min(Math.max(r.width, 240), window.innerWidth - 24);
     const left = Math.min(Math.max(8, r.left), window.innerWidth - width - 8);
     if (below) {
-      setPos({ top: r.bottom + 8, bottom: "auto", left, width });
+      setPos({ top: r.bottom + 8, bottom: "auto", left, width, maxHeight: Math.max(120, window.innerHeight - r.bottom - 8) });
     } else {
-      setPos({ top: "auto", bottom: window.innerHeight - r.top + 8, left, width });
+      setPos({ top: "auto", bottom: window.innerHeight - r.top + 8, left, width, maxHeight: Math.max(120, r.top - 8) });
     }
     const onScroll = (e: Event) => {
       const t = e.target as Element | null;
@@ -102,6 +102,7 @@ export default function ProjectPicker({ projects, value, onChange, onDelete, onN
           width: pos.width,
           top: pos.top,
           bottom: pos.bottom,
+          maxHeight: pos.maxHeight,
           zIndex: 9999,
           opacity: 1,
           transform: "none",

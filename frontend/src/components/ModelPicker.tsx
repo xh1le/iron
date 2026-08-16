@@ -13,7 +13,7 @@ type Props = {
 export default function ModelPicker({ value, options, onChange, placeholder = "auto", withPlaceholder = true, onOpen }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number | string; bottom: number | string; left: number; width: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number | string; bottom: number | string; left: number; width: number; maxHeight: number } | null>(null);
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -42,9 +42,9 @@ export default function ModelPicker({ value, options, onChange, placeholder = "a
     const left = Math.min(Math.max(8, r.left), window.innerWidth - width - 8);
 
     if (below) {
-      setPos({ top: r.bottom + 8, bottom: "auto", left, width });
+      setPos({ top: r.bottom + 8, bottom: "auto", left, width, maxHeight: Math.max(120, window.innerHeight - r.bottom - 8) });
     } else {
-      setPos({ top: "auto", bottom: window.innerHeight - r.top + 8, left, width });
+      setPos({ top: "auto", bottom: window.innerHeight - r.top + 8, left, width, maxHeight: Math.max(120, r.top - 8) });
     }
     const onScroll = (e: Event) => {
       const t = e.target as Element | null;
@@ -66,8 +66,10 @@ export default function ModelPicker({ value, options, onChange, placeholder = "a
         position: "fixed",
         left: pos.left,
         width: pos.width,
+        maxWidth: pos.width,
         top: pos.top,
         bottom: pos.bottom,
+        maxHeight: pos.maxHeight,
         zIndex: 9999,
         opacity: 1,
         transform: "none",
@@ -91,11 +93,8 @@ export default function ModelPicker({ value, options, onChange, placeholder = "a
   return (
     <div ref={ref} className={`model-picker ${open ? "open" : ""}`}>
       <button type="button" className="model-trigger" onClick={() => {
-        setOpen((v) => {
-          const next = !v;
-          if (next) onOpen?.();
-          return next;
-        });
+        if (!open) onOpen?.();
+        setOpen(!open);
       }} aria-haspopup="listbox" aria-expanded={open}>
         <span className="dot-mini" aria-hidden="true" />
         <span className="model-label">{value || placeholder}</span>
