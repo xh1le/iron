@@ -100,6 +100,8 @@ export default function ProjectPicker({ projects, value, onChange, onDelete, onN
           position: "fixed",
           left: pos.left,
           width: pos.width,
+          minWidth: pos.width,
+          maxWidth: pos.width,
           top: pos.top,
           bottom: pos.bottom,
           maxHeight: pos.maxHeight,

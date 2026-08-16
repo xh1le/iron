@@ -109,6 +109,7 @@ export default function ReasoningPicker({ value, options, onChange, disabled }: 
           position: "fixed",
           left: pos.left,
           width: pos.width,
+          minWidth: pos.width,
           maxWidth: pos.width,
           right: "auto",
           top: pos.top,

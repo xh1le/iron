@@ -365,7 +365,7 @@ code, .mono, kbd { font-family: "IBM Plex Mono", ui-monospace, monospace; }
 .model-menu::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 999px; }
 .model-menu::-webkit-scrollbar-track { background: transparent; }
 .model-picker.open .model-menu { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
-.project-picker .model-menu { top: calc(100% + 8px); bottom: auto; left: 0; right: 0; min-width: 0; width: auto; }
+.project-picker .model-menu { top: calc(100% + 8px); bottom: auto; min-width: 0; }
 .model-option {
   display: flex;
   align-items: center;
@@ -615,7 +615,7 @@ code, .mono, kbd { font-family: "IBM Plex Mono", ui-monospace, monospace; }
 .history-label { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); padding: 6px 4px 4px; opacity: 0.9; }
 .project-picker { width: 100%; }
 .project-trigger { width: 100%; justify-content: space-between; min-height: 32px; }
-.project-menu { min-width: 100%; }
+.project-menu { min-width: 0; }
 .project-row { display: flex; align-items: center; gap: 4px; padding: 2px; border-radius: 10px; animation: optionIn 0.28s var(--ease-out) both; animation-delay: calc(var(--i) * 14ms); }
 .project-row:hover { background: rgba(255,255,255,0.06); }
 .project-row.active { background: rgba(255,255,255,0.08); }

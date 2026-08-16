@@ -66,6 +66,7 @@ export default function ModelPicker({ value, options, onChange, placeholder = "a
         position: "fixed",
         left: pos.left,
         width: pos.width,
+        minWidth: pos.width,
         maxWidth: pos.width,
         top: pos.top,
         bottom: pos.bottom,
