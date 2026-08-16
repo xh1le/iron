@@ -86,6 +86,14 @@ function prettySize(n: number) {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function shortPath(path: string, keep = 2): string {
+  if (!path) return "";
+  const p = path.replace(/\\/g, "/");
+  const parts = p.split("/").filter(Boolean);
+  if (parts.length <= keep) return path;
+  return "…/" + parts.slice(-keep).join("/");
+}
+
 function fmtTok(n: number) {
   if (!n) return "0";
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
@@ -120,6 +128,7 @@ export function App() {
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [mcpTesting, setMcpTesting] = useState("");
   const [mcpForm, setMcpForm] = useState({ name: "", type: "stdio", command: "", args: "", url: "" });
+  const [projectFiles, setProjectFiles] = useState<{ name: string; is_dir: boolean; size: number; modified: number }[]>([]);
   const [goal, setGoal] = useState("");
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState(false);
@@ -308,6 +317,28 @@ export function App() {
     }
   }
 
+  async function loadProjectFiles(pid = projectId) {
+    if (!pid) {
+      setProjectFiles([]);
+      return;
+    }
+    try {
+      const res = await api.json<{ files: { name: string; is_dir: boolean; size: number; modified: number }[]; workspace: string }>(`/api/projects/${pid}/files`);
+      setProjectFiles(res.files || []);
+    } catch {
+      setProjectFiles([]);
+    }
+  }
+
+  async function revealProject(pid: string) {
+    try {
+      await api.json(`/api/projects/${pid}/reveal`, { method: "POST" });
+      flash("opened in file explorer");
+    } catch {
+      flash("couldn't open folder");
+    }
+  }
+
   async function resync() {
     try {
       if (!settings) {
@@ -361,7 +392,13 @@ export function App() {
     setRenaming(false);
     setFiles([]);
     await refreshChats(id);
+    await loadProjectFiles(id);
   }
+
+  useEffect(() => {
+    if (projectId) loadProjectFiles(projectId);
+    else setProjectFiles([]);
+  }, [projectId]);
 
   function upsertRun(next: Partial<RunSnapshot> & { id: string }) {
     setRuns((prev) => ({ ...prev, [next.id]: { ...(prev[next.id] || { agents: [] }), ...next } as RunSnapshot }));
@@ -480,7 +517,7 @@ export function App() {
     try {
       const item = await api.json<Project>("/api/projects", {
         method: "POST",
-        body: JSON.stringify({ name, workspace: settings?.workspace || "" }),
+        body: JSON.stringify({ name, workspace: "" }),
       });
       if ((item as unknown as { error?: string }).error) return;
       setProjects((prev) => [...prev, item]);
@@ -1060,38 +1097,113 @@ export function App() {
           </div>
 
           <div className="side-tools">
-            <button className="solid wide" onClick={newChat}>
-              new chat
+            <button className="solid wide" onClick={newChat} aria-label="start new chat in current project">
+              <span>new chat</span>
+              <kbd>↵</kbd>
             </button>
             <ProjectPicker projects={projects} value={projectId} onChange={switchProject} onDelete={deleteProject} onNew={() => setShowNewProject(true)} />
-            <input className="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="search chats" />
+            {project && (
+              <div className="project-folder" title={project.workspace || "no folder assigned"}>
+                <span className="folder-icon" aria-hidden="true">▦</span>
+                <span className="folder-path mono">{project.workspace ? shortPath(project.workspace) : "no folder"}</span>
+                <button className="icon-mini" aria-label="open folder in explorer" title="open in explorer" onClick={() => revealProject(projectId)}>
+                  ⧉
+                </button>
+              </div>
+            )}
+            <div className="search-wrap">
+              <input className="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="search chats" aria-label="search chats" type="search" />
+              {query && (
+                <button className="search-clear" aria-label="clear search" onClick={() => setQuery("")}>
+                  ×
+                </button>
+              )}
+            </div>
           </div>
+
+          <div className="side-divider" aria-hidden="true" />
+
+          {projectFiles.length > 0 && (
+            <div className="files-preview">
+              <div className="section-head tight">
+                <h3>files</h3>
+                <span className="count">{projectFiles.length}</span>
+              </div>
+              <div className="file-list">
+                {projectFiles.slice(0, 8).map((f) => (
+                  <div key={f.name} className={`file-item ${f.is_dir ? "dir" : ""}`} title={f.name}>
+                    <span className="file-icon" aria-hidden="true">{f.is_dir ? "▸" : "·"}</span>
+                    <span className="file-name">{f.name}</span>
+                    {!f.is_dir && <span className="file-size mono">{prettySize(f.size)}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="section-head">
             <h3>history</h3>
-            <span className="count">{visibleChats.length}</span>
+            <span className="count" aria-live="polite">
+              {query.trim() ? `${visibleChats.length} / ${chats.filter((c) => c.project_id === projectId).length}` : `${visibleChats.length}`}
+            </span>
           </div>
-          <div className="side-scroll">
-            {visibleChats.length === 0 && <div className="quiet">no chats yet</div>}
-            {visibleChats.map((c) => (
-              <div key={c.id} className={`run-item ${c.id === chatId ? "active" : ""}`}>
-                <button className="run-main" onClick={() => { setChatId(c.id); setPage("chat"); setFiles([]); }}>
-                  <div className="g">{c.pinned ? "★ " : ""}{c.title || "New chat"}</div>
-                  <div className="m">
-                    <span>{c.messages.length} msgs</span>
-                    <span className="mono">{fmtDay(c.updated_at)}</span>
+          <div className="side-scroll" role="list">
+            {visibleChats.length === 0 ? (
+              <div className="quiet">{query.trim() ? `no results for “${query.trim()}”` : "no chats yet — start one above"}</div>
+            ) : (
+              <>
+                {visibleChats.filter((c) => c.pinned).length > 0 && (
+                  <div className="history-group" role="group" aria-label="pinned chats">
+                    <div className="history-label">pinned</div>
+                    {visibleChats
+                      .filter((c) => c.pinned)
+                      .map((c) => (
+                        <div key={c.id} role="listitem" className={`run-item ${c.id === chatId ? "active" : ""} pinned`}>
+                          <button className="run-main" onClick={() => { setChatId(c.id); setPage("chat"); setFiles([]); }} title={c.title || "New chat"}>
+                            <div className="g">{c.title || "New chat"}</div>
+                            <div className="m">
+                              <span>{c.messages.length} msgs</span>
+                              <span className="mono">{fmtDay(c.updated_at)}</span>
+                            </div>
+                          </button>
+                          <div className="run-ops">
+                            <button type="button" className="active" aria-label="unpin" title="unpin" onClick={() => pinChat(c)}>
+                              ★
+                            </button>
+                            <button type="button" aria-label="delete chat" title="delete" onClick={() => setConfirmDelete({ chatId: c.id })}>
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                   </div>
-                </button>
-                <div className="run-ops">
-                  <button type="button" aria-label={c.pinned ? "unpin" : "pin"} title="pin" onClick={() => pinChat(c)}>
-                    ★
-                  </button>
-                  <button type="button" aria-label="delete chat" title="delete" onClick={() => setConfirmDelete({ chatId: c.id })}>
-                    ×
-                  </button>
+                )}
+                <div className="history-group" role="group" aria-label="recent chats">
+                  {visibleChats.filter((c) => c.pinned).length > 0 && <div className="history-label">recent</div>}
+                  {visibleChats
+                    .filter((c) => !c.pinned)
+                    .map((c) => (
+                      <div key={c.id} role="listitem" className={`run-item ${c.id === chatId ? "active" : ""}`}>
+                        <button className="run-main" onClick={() => { setChatId(c.id); setPage("chat"); setFiles([]); }} title={c.title || "New chat"}>
+                          <div className="g">{c.title || "New chat"}</div>
+                          <div className="m">
+                            <span>{c.messages.length} msgs</span>
+                            <span className="mono">{fmtDay(c.updated_at)}</span>
+                          </div>
+                        </button>
+                        <div className="run-ops">
+                          <button type="button" aria-label="pin" title="pin" onClick={() => pinChat(c)}>
+                            ☆
+                          </button>
+                          <button type="button" aria-label="delete chat" title="delete" onClick={() => setConfirmDelete({ chatId: c.id })}>
+                            ×
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                 </div>
-              </div>
-            ))}
+              </>
+            )}
           </div>
           <button className={`nav-settings ${page === "settings" ? "on" : ""}`} onClick={() => setPage("settings")}>
             settings

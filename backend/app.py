@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import platform
 import secrets
+import subprocess
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -22,6 +25,17 @@ from .tools.registry import builtin_tools
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIST = ROOT / "frontend" / "dist"
+
+
+def _reveal_in_explorer(path: str) -> None:
+    p = Path(path).resolve()
+    system = platform.system()
+    if system == "Windows":
+        os.startfile(str(p))  # type: ignore[attr-defined]
+    elif system == "Darwin":
+        subprocess.Popen(["open", str(p)])
+    else:
+        subprocess.Popen(["xdg-open", str(p)])
 
 
 def create_app() -> FastAPI:
@@ -173,6 +187,36 @@ def create_app() -> FastAPI:
     async def delete_project(project_id: str) -> dict[str, Any]:
         ok = store.delete_project(project_id)
         return {"ok": ok}
+
+    @app.get("/api/projects/{project_id}/files")
+    async def project_files(project_id: str) -> dict[str, Any]:
+        proj = store.project(project_id)
+        if not proj:
+            return {"error": "not found"}
+        files = await asyncio.to_thread(store.project_files, project_id)
+        return {"files": files, "workspace": proj.get("workspace") or ""}
+
+    @app.post("/api/projects/{project_id}/reveal")
+    async def reveal_project(project_id: str) -> dict[str, Any]:
+        proj = store.project(project_id)
+        if not proj:
+            return {"ok": False, "error": "not found"}
+        raw = (proj.get("workspace") or "").strip()
+        if not raw:
+            from .config import default_workspace
+
+            raw = str(default_workspace())
+        path = Path(raw).expanduser().resolve()
+        if not path.exists():
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+            except Exception as exc:
+                return {"ok": False, "error": str(exc)}
+        try:
+            await asyncio.to_thread(_reveal_in_explorer, str(path))
+            return {"ok": True}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
 
     @app.get("/api/chats")
     async def list_chats(project_id: str | None = None) -> dict[str, Any]:

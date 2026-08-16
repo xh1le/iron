@@ -25,6 +25,34 @@ def _safe(name: str) -> str:
     return cleaned[:120]
 
 
+def _projects_root() -> Path:
+    root = Path(__file__).resolve().parent.parent / "projects"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _resolve_project_workspace(name: str, project_id: str, workspace: str) -> str:
+    raw = (workspace or "").strip()
+    if raw:
+        p = Path(raw).expanduser()
+        if not p.is_absolute():
+            p = (_projects_root() / p).resolve()
+        else:
+            p = p.resolve()
+    else:
+        safe = SAFE_NAME.sub("_", name.strip().lower())[:40].strip("_") or "untitled"
+        folder = f"{safe}-{project_id[4:8]}"
+        p = (_projects_root() / folder).resolve()
+    p.mkdir(parents=True, exist_ok=True)
+    try:
+        marker = p / ".iron-project"
+        if not marker.exists():
+            marker.write_text(project_id, encoding="utf-8")
+    except OSError:
+        pass
+    return str(p)
+
+
 def _guard_chat_id(chat_id: str) -> None:
     if not chat_id or ".." in chat_id or any(c in chat_id for c in "/\\"):
         raise ValueError("invalid chat id")
@@ -170,11 +198,62 @@ class Store:
         with self._lock:
             return next((p for p in self._data["projects"] if p["id"] == project_id), None)
 
+    def project_files(self, project_id: str, limit: int = 30) -> list[dict[str, Any]]:
+        proj = self.project(project_id)
+        if not proj:
+            return []
+        raw = (proj.get("workspace") or "").strip()
+        if not raw:
+            try:
+                from .config import default_workspace
+
+                raw = str(default_workspace())
+            except Exception:
+                return []
+        path = Path(raw).expanduser().resolve()
+        if not path.exists() or not path.is_dir():
+            return []
+        files: list[dict[str, Any]] = []
+        try:
+            for p in path.iterdir():
+                if p.name == ".iron-project":
+                    continue
+                try:
+                    is_dir = p.is_dir()
+                    stat = p.stat()
+                except OSError:
+                    continue
+                files.append(
+                    {
+                        "name": p.name,
+                        "is_dir": is_dir,
+                        "size": stat.st_size if not is_dir else 0,
+                        "modified": int(stat.st_mtime * 1000),
+                    }
+                )
+                if len(files) >= limit:
+                    break
+        except OSError:
+            return []
+        files.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
+        return files
+
     def create_project(self, name: str, workspace: str = "") -> dict[str, Any]:
+        project_id = _id("prj")
+        clean_name = (name or "untitled").strip()[:80] or "untitled"
+        try:
+            resolved = _resolve_project_workspace(clean_name, project_id, workspace)
+        except Exception:
+            # fallback to raw workspace or projects root on failure
+            resolved = (workspace or "").strip() or str(_projects_root() / f"untitled-{project_id[4:8]}")
+            try:
+                Path(resolved).mkdir(parents=True, exist_ok=True)
+            except OSError:
+                pass
         item = {
-            "id": _id("prj"),
-            "name": (name or "untitled").strip()[:80],
-            "workspace": workspace,
+            "id": project_id,
+            "name": clean_name,
+            "workspace": resolved,
             "created_at": now_ms(),
             "updated_at": now_ms(),
         }
@@ -189,9 +268,20 @@ class Store:
             for item in self._data["projects"]:
                 if item["id"] != project_id:
                     continue
-                for key in ("name", "workspace"):
-                    if key in patch and patch[key] is not None:
-                        item[key] = patch[key]
+                # handle name first so workspace resolve can use new name if needed
+                if "name" in patch and patch["name"] is not None:
+                    item["name"] = patch["name"]
+                if "workspace" in patch and patch["workspace"] is not None:
+                    raw = patch["workspace"]
+                    if isinstance(raw, str) and raw.strip():
+                        try:
+                            resolved = _resolve_project_workspace(item.get("name", "untitled"), project_id, raw)
+                            item["workspace"] = resolved
+                        except Exception:
+                            item["workspace"] = raw
+                    else:
+                        # explicit empty -> keep as-is (allows clearing)
+                        item["workspace"] = raw
                 item["updated_at"] = now_ms()
                 self._save()
                 return dict(item)
