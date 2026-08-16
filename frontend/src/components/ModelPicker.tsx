@@ -38,7 +38,7 @@ export default function ModelPicker({ value, options, onChange, placeholder = "a
 
     // size to longest option (mono ~7.4px/char at 12px) + padding/check, clamped to viewport
     const longest = Math.max((withPlaceholder ? placeholder.length : 0), ...options.map((o) => o.length), 8);
-    const width = Math.min(Math.max(r.width, 200, longest * 7.4 + 52), window.innerWidth - 24);
+    const width = Math.min(Math.max(200, longest * 7.4 + 52), window.innerWidth - 24);
     const left = Math.min(Math.max(8, r.left), window.innerWidth - width - 8);
 
     if (below) {

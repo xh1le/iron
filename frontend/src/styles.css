@@ -332,8 +332,7 @@ code, .mono, kbd { font-family: "IBM Plex Mono", ui-monospace, monospace; }
 .model-trigger:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
 .model-picker.open .model-trigger { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.22); color: var(--text); box-shadow: 0 4px 16px rgba(0,0,0,0.14); }
 .model-picker.disabled { opacity: 0.6; }
-.reasoning-menu { min-width: 0 !important; max-width: min(260px, calc(100vw - 24px)); width: max-content; }
-.setting-field .reasoning-menu { width: max-content; max-width: 260px; }
+.reasoning-menu { min-width: 0 !important; max-width: min(260px, calc(100vw - 24px)); }
 .model-label { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chev { font-size: 10px; opacity: 0.6; transition: transform 0.22s var(--ease); display: inline-block; }
 .chev.up { transform: rotate(180deg); }
