@@ -635,6 +635,10 @@ code, .mono, kbd { font-family: "IBM Plex Mono", ui-monospace, monospace; }
 .copy-btn:hover { background: rgba(255,255,255,0.1); color: var(--text); }
 .code-block pre { margin: 0; padding: 10px 12px; overflow-x: auto; }
 .code-block code { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12.5px; line-height: 1.55; }
+.code-body { overflow-x: auto; }
+.code-body .shiki { margin: 0; padding: 10px 12px; background: transparent !important; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12.5px; line-height: 1.55; }
+.code-body .shiki code { font-family: inherit; font-size: inherit; line-height: inherit; background: transparent !important; color: inherit; }
+.code-body .shiki span { font-family: inherit; }
 .inline-code { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 5px; padding: 1px 5px; font-size: 0.9em; }
 .md code { font-family: "IBM Plex Mono", ui-monospace, monospace; }
 

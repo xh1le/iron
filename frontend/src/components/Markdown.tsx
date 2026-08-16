@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { marked } from "marked";
+import CodeBlock from "./CodeBlock";
 
 marked.setOptions({ breaks: true, gfm: true });
 
@@ -38,32 +39,18 @@ function sanitizeHtml(html: string): string {
   return doc.body.innerHTML;
 }
 
-function CodeBlock({ code }: { code: string }) {
-  return (
-    <div className="code-block">
-      <div className="code-head">
-        <span className="mono">code</span>
-        <button type="button" className="copy-btn" onClick={() => navigator.clipboard?.writeText(code)}>
-          copy
-        </button>
-      </div>
-      <pre><code>{code}</code></pre>
-    </div>
-  );
-}
-
 export default function Markdown({ text }: { text: string }) {
   const parts = useMemo(() => {
-    const out: { kind: "md" | "code"; text: string }[] = [];
+    const out: { kind: "md" | "code"; text: string; lang: string }[] = [];
     const re = /```(\w*)\n([\s\S]*?)(?:```|$)/g;
     let last = 0;
     let m: RegExpExecArray | null;
     while ((m = re.exec(text || ""))) {
-      if (m.index > last) out.push({ kind: "md", text: text.slice(last, m.index) });
-      out.push({ kind: "code", text: m[2] });
+      if (m.index > last) out.push({ kind: "md", text: text.slice(last, m.index), lang: "" });
+      out.push({ kind: "code", text: m[2], lang: m[1] || "" });
       last = m.index + m[0].length;
     }
-    if (last < (text || "").length) out.push({ kind: "md", text: text.slice(last) });
+    if (last < (text || "").length) out.push({ kind: "md", text: text.slice(last), lang: "" });
     return out;
   }, [text]);
 
@@ -71,7 +58,7 @@ export default function Markdown({ text }: { text: string }) {
     <div className="md">
       {parts.map((p, i) =>
         p.kind === "code" ? (
-          <CodeBlock key={i} code={p.text} />
+          <CodeBlock key={i} code={p.text} lang={p.lang} />
         ) : (
           <div key={i} dangerouslySetInnerHTML={{ __html: sanitizeHtml(marked.parse(p.text) as string) }} />
         ),
