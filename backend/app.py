@@ -318,6 +318,7 @@ def create_app() -> FastAPI:
             project_id=body.project_id or "",
             extra_context=extra,
             on_done=persist_run,
+            reasoning_level=body.reasoning_level,
         )
         store.add_message(chat_id, {"role": "assistant", "content": "", "run_id": run.id})
         snap = run.snapshot().model_dump()

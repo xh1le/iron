@@ -81,14 +81,16 @@ class OllamaClient:
         # reasoning / thinking
         if not cloud:
             payload["options"] = {"num_ctx": num_ctx or self.settings.ctx()}
+            # Ollama's OpenAI-compat endpoint only honors top-level reasoning_effort
+            # ("none"|"low"|"medium"|"high"). `think` is native-API only and unknown
+            # options are silently ignored; older Ollama also rejects "max", so fold it to "high".
             if lvl == "off":
-                payload["think"] = False
-            elif lvl in ("low", "medium", "high", "max"):
-                payload["think"] = True
-                # pass effort hint for models that support it (qwen3 etc. ignore unknown keys gracefully)
-                payload["options"]["reasoning_level"] = lvl
-                payload["options"]["thinking_level"] = lvl
-            # auto -> omit think (let model decide, thinking models default on)
+                payload["reasoning_effort"] = "none"
+            elif lvl in ("low", "medium", "high"):
+                payload["reasoning_effort"] = lvl
+            elif lvl == "max":
+                payload["reasoning_effort"] = "high"
+            # auto -> omit (model decides; newer ollama defaults think off when tools present)
         else:
             if lvl == "off":
                 payload["reasoning_effort"] = "none"

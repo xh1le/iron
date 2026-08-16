@@ -581,6 +581,7 @@ export function App() {
           project_id: projectId,
           chat_id: chatId,
           attachments,
+          reasoning_level: settings?.reasoning_level || "auto",
         }),
       });
       if ((run as unknown as { error?: string }).error) {

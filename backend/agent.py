@@ -45,6 +45,7 @@ class Agent:
         limiter: asyncio.Semaphore,
         spawn_child: Any,
         cloud: bool = False,
+        reasoning_level: str | None = None,
     ) -> None:
         self.id = "ag_" + uuid.uuid4().hex[:10]
         self.run_id = run_id
@@ -63,6 +64,7 @@ class Agent:
         self.limiter = limiter
         self.spawn_child = spawn_child
         self.cloud = cloud
+        self.reasoning_level = reasoning_level
         self.status = "queued"
         self.steps = 0
         self.tokens = 0
@@ -250,6 +252,7 @@ class Agent:
                     tools=schemas,
                     num_ctx=num_ctx,
                     cloud=self.cloud,
+                    reasoning_level=self.reasoning_level,
                 ):
                     if self.cancel.is_set():
                         break

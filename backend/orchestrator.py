@@ -66,6 +66,7 @@ class Run:
         cloud: bool,
         store: Any = None,
         embedder: Any = None,
+        reasoning_level: str | None = None,
     ) -> None:
         self.id = "run_" + uuid.uuid4().hex[:10]
         self.goal = goal
@@ -77,6 +78,7 @@ class Run:
         self.model = model
         self.orch_model = orch_model
         self.cloud = cloud
+        self.reasoning_level = reasoning_level
         self.store = store
         self.embedder = embedder
         self.status = "queued"
@@ -160,6 +162,7 @@ class Run:
             limiter=self.limiter,
             spawn_child=lambda parent, title, goal: self.spawn_agent(parent=parent, title=title, goal=goal),
             cloud=False,
+            reasoning_level=self.reasoning_level,
         )
         self.agents[agent.id] = agent
         await self._emit("agent.spawn", agent=agent.snapshot().model_dump())
@@ -392,6 +395,7 @@ class Run:
                     tools=schemas,
                     num_ctx=num_ctx,
                     cloud=self.cloud,
+                    reasoning_level=self.reasoning_level,
                 ):
                     if self.cancel.is_set():
                         break
@@ -485,6 +489,7 @@ class Engine:
         project_id: str = "",
         extra_context: str = "",
         on_done: Any = None,
+        reasoning_level: str | None = None,
     ) -> Run:
         ws = workspace or self.settings.workspace
         worker_model = model or self.settings.resolved_model()
@@ -501,6 +506,7 @@ class Engine:
             cloud=bool(self.settings.use_cloud_orchestrator and self.settings.cloud_base_url),
             store=self.store,
             embedder=self.embedder,
+            reasoning_level=reasoning_level,
         )
         run.chat_id = chat_id
         run.project_id = project_id
