@@ -248,6 +248,13 @@ def create_app() -> FastAPI:
         item = store.clear_messages(chat_id)
         return {"ok": item is not None, "chat": item}
 
+    @app.post("/api/chats/{chat_id}/compact")
+    async def compact_chat(chat_id: str) -> dict[str, Any]:
+        if not store.chat(chat_id):
+            return {"error": "not found"}
+        result = await app.state.engine.compact_chat(chat_id)
+        return result or {"error": "not found"}
+
     @app.delete("/api/chats/{chat_id}/messages/{message_id}")
     async def delete_message(chat_id: str, message_id: str) -> dict[str, Any]:
         item = store.delete_message(chat_id, message_id)
@@ -300,6 +307,17 @@ def create_app() -> FastAPI:
             chat_id = created["id"]
         elif not store.chat(chat_id):
             return {"error": "chat not found"}
+        chat_obj = store.chat(chat_id)
+        if chat_obj:
+            msgs = chat_obj.get("messages") or []
+            if len(msgs) > 8:
+                try:
+                    from .context import estimate_messages
+
+                    if estimate_messages(msgs) > int(app.state.settings.ctx() * 0.85):
+                        await app.state.engine.compact_chat(chat_id, keep=4, auto=True)
+                except Exception:
+                    pass
         extra = store.context_block(chat_id, limit=4)
         files = body.attachments or []
         if files:

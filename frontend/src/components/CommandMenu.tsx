@@ -9,6 +9,7 @@ export const COMMANDS: Command[] = [
   { name: "rename", desc: "rename this chat", arg: "title", needChat: true },
   { name: "pin", desc: "pin or unpin this chat", needChat: true },
   { name: "clear", desc: "clear all messages in this chat", needChat: true },
+  { name: "compact", desc: "condense chat history into memory", needChat: true },
   { name: "export", desc: "copy this chat as markdown", needChat: true },
   { name: "model", desc: "switch worker model", arg: "name" },
   { name: "attach", desc: "attach files to this message" },

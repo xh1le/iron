@@ -477,6 +477,21 @@ class Store:
                 return dict(item)
         return None
 
+    def compact_messages(self, chat_id: str, keep: int = 4) -> dict[str, Any] | None:
+        """Drop all but the last `keep` messages (older history moves into memory)."""
+        with self._lock:
+            for item in self._data["chats"]:
+                if item["id"] != chat_id:
+                    continue
+                msgs = item.get("messages") or []
+                if len(msgs) <= keep:
+                    return dict(item)
+                item["messages"] = msgs[-keep:]
+                item["updated_at"] = now_ms()
+                self._save()
+                return dict(item)
+        return None
+
     def save_upload(self, chat_id: str, filename: str, data: bytes) -> dict[str, Any]:
         _guard_chat_id(chat_id)
         if len(data) > MAX_UPLOAD:

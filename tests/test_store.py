@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 from backend.store import Store
@@ -29,6 +30,62 @@ def test_clear_messages(tmp_path: Path, monkeypatch):
     store.add_message(chat["id"], {"role": "assistant", "content": "b"})
     assert store.clear_messages(chat["id"]) is not None
     assert store.chat(chat["id"])["messages"] == []
+
+
+def test_compact_messages(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("backend.store.iron_home", lambda: tmp_path)
+    store = Store()
+    chat = store.create_chat(store.projects()[0]["id"], "New chat")
+    for i in range(10):
+        store.add_message(chat["id"], {"role": "user", "content": f"msg {i}"})
+    out = store.compact_messages(chat["id"], keep=3)
+    assert out is not None
+    assert [m["content"] for m in out["messages"]] == ["msg 7", "msg 8", "msg 9"]
+
+
+def test_engine_compact_chat(tmp_path: Path, monkeypatch):
+    from backend.config import Settings
+    from backend.events import EventBus
+    from backend.orchestrator import Engine
+    from backend.tools.registry import builtin_tools
+
+    monkeypatch.setattr("backend.store.iron_home", lambda: tmp_path)
+    store = Store()
+    chat = store.create_chat(store.projects()[0]["id"], "New chat")
+    for i in range(10):
+        role = "user" if i % 2 == 0 else "assistant"
+        store.add_message(chat["id"], {"role": role, "content": f"msg {i}"})
+
+    async def go():
+        engine = Engine(Settings(workspace=str(tmp_path), model="fake"), EventBus(), builtin_tools(), store=store)
+
+        async def fake_compact(model, user):
+            assert "Existing memory" not in user
+            assert "msg 0" in user and "msg 6" in user
+            assert "msg 7" not in user
+            return "COMPACTED BLOCK"
+
+        engine._call_compact = fake_compact  # type: ignore[method-assign]
+        res = await engine.compact_chat(chat["id"], keep=3)
+        assert res and res.get("ok") is True
+        assert res["dropped"] == 7
+        updated = store.chat(chat["id"])
+        assert len(updated["messages"]) == 4
+        assert updated["messages"][-1]["role"] == "system"
+        assert "context compacted" in updated["messages"][-1]["content"]
+        assert updated["memory"]["summary"] == "COMPACTED BLOCK"
+        # second pass merges existing memory
+        async def fake_compact2(model, user):
+            assert "Existing memory" in user and "COMPACTED BLOCK" in user
+            return "MERGED"
+
+        engine._call_compact = fake_compact2  # type: ignore[method-assign]
+        res2 = await engine.compact_chat(chat["id"], keep=3)
+        assert res2 and res2.get("ok") is True
+        assert res2["dropped"] == 1
+        assert store.chat(chat["id"])["memory"]["summary"] == "MERGED"
+
+    asyncio.run(go())
 
 
 def test_edit_delete_message(tmp_path: Path, monkeypatch):

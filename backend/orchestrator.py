@@ -27,6 +27,16 @@ OPEN: unresolved items or next steps
 
 Rules: under 1200 characters total. Only durable information, never process narration. If the conversation is trivial, answer with one short line."""
 
+COMPACT_SYSTEM = """You are iron's context compactor. You condense old conversation history into a single dense memory block that lets a future instance of the same model continue the work seamlessly without re-reading anything. The block must be self-sufficient: a capable agent reading only this block plus the few recent messages must be able to pick up exactly where the conversation left off.
+
+Rules:
+1. Preserve every durable fact exactly: file paths, code locations, commands run, config values, error messages and their fixes, decisions, user preferences, constraints, and names.
+2. Keep task state explicit: what is DONE, what is IN PROGRESS, what is PLANNED, and what is BLOCKED, with the concrete next step(s).
+3. Preserve the user's most recent intentions and any pending or unmet requests as close to verbatim as possible.
+4. Be ruthlessly dense: drop greetings, apologies, repetition, process narration, and anything derivable from context. Short bullets, no prose. Use at most these headers: PROJECT, FACTS, DECISIONS, DONE, IN PROGRESS, OPEN.
+5. If an existing memory block is provided, merge with it — never lose older facts. New information wins over conflicting old information.
+6. Under 800 words. If a section has nothing, omit it. Never invent facts; when unsure, mark with "(?)"."""
+
 ORCH_SYSTEM = """You are iron's orchestrator. Decompose the user's goal into independent parallel tasks.
 Prefer many small agents over one large agent. Each task must be self-contained.
 Never exceed depth 2 for descendants (you are depth 0; workers are 1; their children are 2).
@@ -573,6 +583,77 @@ class Engine:
         messages = [
             {"role": "system", "content": SUMMARY_SYSTEM},
             {"role": "user", "content": user[:12000]},
+        ]
+        for candidate in (model, self.settings.resolved_model()):
+            parts: list[str] = []
+            try:
+                async for chunk in self.client.stream_chat(model=candidate, messages=messages, num_ctx=8192, temperature=0.2):
+                    delta = extract_delta(chunk)
+                    if delta["content"]:
+                        parts.append(delta["content"])
+            except Exception:
+                if candidate == model and candidate != self.settings.resolved_model():
+                    continue
+                return ""
+            text = "".join(parts).strip()
+            if text:
+                return text
+        return ""
+
+    async def compact_chat(self, chat_id: str, keep: int = 4, auto: bool = False) -> dict[str, Any] | None:
+        """LLM-compact a chat: condense older messages into persistent memory,
+        keep the last `keep` messages verbatim, and leave a visible note."""
+        if not self.store:
+            return None
+        chat = self.store.chat(chat_id)
+        if not chat:
+            return None
+        msgs = chat.get("messages") or []
+        if len(msgs) <= keep:
+            return {"skipped": True, "reason": "not enough messages yet", "count": len(msgs)}
+        old_mem = ((chat.get("memory") or {}).get("summary") or "").strip()
+        to_compress = msgs[:-keep]
+        turns: list[str] = []
+        for msg in to_compress:
+            role = msg.get("role")
+            body = (msg.get("content") or "").strip()
+            if not body:
+                continue
+            if role == "user":
+                turns.append(f"User: {body[:1200]}")
+            elif role == "assistant":
+                turns.append(f"Iron: {body[:1200]}")
+        if not turns and not old_mem:
+            return {"skipped": True, "reason": "nothing to compress", "count": len(msgs)}
+        model = (self.settings.summary_model or "").strip() or self.settings.resolved_model()
+        user = (
+            (f"Existing memory (merge, never lose old facts):\n{old_mem}\n\n" if old_mem else "")
+            + "Conversation to compress:\n"
+            + "\n".join(turns)
+        )
+        text = await self._call_compact(model, user)
+        if not text:
+            return {"skipped": True, "reason": "compaction produced nothing", "count": len(msgs)}
+        dropped = len(to_compress)
+        self.store.compact_messages(chat_id, keep)
+        self.store.update_chat_memory(chat_id, text)
+        note = (
+            "context compacted automatically — "
+            if auto
+            else "context compacted — "
+        ) + f"condensed {dropped} earlier messages into persistent memory"
+        self.store.add_message(chat_id, {"role": "system", "content": note})
+        return {
+            "ok": True,
+            "dropped": dropped,
+            "note": note,
+            "chat": self.store.chat(chat_id),
+        }
+
+    async def _call_compact(self, model: str, user: str) -> str:
+        messages = [
+            {"role": "system", "content": COMPACT_SYSTEM},
+            {"role": "user", "content": user[:16000]},
         ]
         for candidate in (model, self.settings.resolved_model()):
             parts: list[str] = []

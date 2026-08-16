@@ -818,6 +818,26 @@ export function App() {
     setRenaming(false);
   }
 
+  async function compactChat() {
+    if (!chatId) return;
+    setBusy(true);
+    try {
+      const res = await api.json<{ ok?: boolean; skipped?: boolean; reason?: string; dropped?: number; chat?: Chat }>(`/api/chats/${chatId}/compact`, { method: "POST" });
+      if (res.chat) {
+        setChats((prev) => prev.map((c) => (c.id === res.chat!.id ? { ...c, ...res.chat! } : c)));
+      }
+      if (res.skipped) {
+        flash(`nothing to compact — ${res.reason || "too few messages"}`);
+      } else if (res.ok) {
+        flash(`compacted — ${res.dropped} messages condensed into memory`);
+      }
+    } catch {
+      flash("couldn't compact");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function clearChat() {
     if (!chatId) return;
     const res = await api.json<{ ok: boolean; chat?: Chat }>(`/api/chats/${chatId}/clear`, { method: "POST" });
@@ -867,6 +887,10 @@ export function App() {
         break;
       case "clear":
         setConfirmClear(true);
+        break;
+      case "compact":
+        if (chatId) compactChat();
+        else flash("open a chat first");
         break;
       case "export":
         exportChat();
@@ -1000,6 +1024,13 @@ export function App() {
   );
 
   function renderMessage(m: Message) {
+    if (m.role === "system") {
+      return (
+        <div key={m.id} className="msg-row sys-row">
+          <div className="msg sys-note">▹ {m.content}</div>
+        </div>
+      );
+    }
     if (m.role === "user") {
       if (editingMsg === m.id) {
         return (
