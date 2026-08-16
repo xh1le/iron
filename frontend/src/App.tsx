@@ -6,6 +6,7 @@ import Markdown from "./components/Markdown";
 import Modal from "./components/Modal";
 import ModelPicker from "./components/ModelPicker";
 import ProjectPicker from "./components/ProjectPicker";
+import ReasoningPicker, { getReasoningOptions } from "./components/ReasoningPicker";
 import type {
   AgentSnapshot,
   Attachment,
@@ -306,6 +307,13 @@ export function App() {
   useEffect(() => {
     if (page === "settings") loadMcpServers();
   }, [page]);
+
+  useEffect(() => {
+    if (!settings) return;
+    const opts = getReasoningOptions(settings.model || "");
+    const cur = settings.reasoning_level || "auto";
+    if (!opts.includes(cur)) saveSettings({ reasoning_level: "auto" });
+  }, [settings?.model]);
 
   async function refreshChats(pid = projectId) {
     if (!pid) return;
@@ -969,6 +977,7 @@ export function App() {
           </button>
           <input ref={fileRef} type="file" multiple hidden onChange={(e) => onPickFiles(e.target.files)} />
           <ModelPicker value={settings?.model || ""} options={models} onChange={(v) => saveSettings({ model: v })} onOpen={() => loadModels(1)} />
+          <ReasoningPicker value={settings?.reasoning_level || "auto"} options={getReasoningOptions(settings?.model || "")} onChange={(v) => saveSettings({ reasoning_level: v })} />
         </div>
         <div className="actions">
           {goal.trim() && (
@@ -1032,7 +1041,12 @@ export function App() {
     return (
       <div key={m.id} className="msg-row">
         <div className="turn">
-          {orchThink[rid] && <div className="msg think-msg">▹ {orchThink[rid]}</div>}
+          {orchThink[rid] && (
+            <details className="msg think-msg" open>
+              <summary>▹ reasoning ({settings?.reasoning_level || "auto"})</summary>
+              <div className="think-body">{orchThink[rid]}</div>
+            </details>
+          )}
           {plans[rid]?.length ? (
             <div className="msg plan">
               <span className="label">plan</span>
@@ -1232,6 +1246,10 @@ export function App() {
                   <div className="setting-field">
                     <span>orchestrator</span>
                     <ModelPicker value={settings.orchestrator_model} options={models} onChange={(v) => saveSettings({ orchestrator_model: v })} placeholder="same as worker" onOpen={() => loadModels(1)} />
+                  </div>
+                  <div className="setting-field">
+                    <span>reasoning</span>
+                    <ReasoningPicker value={settings.reasoning_level || "auto"} options={getReasoningOptions(settings.model || settings.orchestrator_model || "")} onChange={(v) => saveSettings({ reasoning_level: v })} />
                   </div>
                   <label>
                     ollama host

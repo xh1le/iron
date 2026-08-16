@@ -66,7 +66,9 @@ class OllamaClient:
         temperature: float | None = None,
         num_ctx: int | None = None,
         cloud: bool = False,
+        reasoning_level: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
+        lvl = (reasoning_level or self.settings.reasoning_level or "auto").strip().lower()
         payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -76,8 +78,24 @@ class OllamaClient:
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
+        # reasoning / thinking
         if not cloud:
             payload["options"] = {"num_ctx": num_ctx or self.settings.ctx()}
+            if lvl == "off":
+                payload["think"] = False
+            elif lvl in ("low", "medium", "high", "max"):
+                payload["think"] = True
+                # pass effort hint for models that support it (qwen3 etc. ignore unknown keys gracefully)
+                payload["options"]["reasoning_level"] = lvl
+                payload["options"]["thinking_level"] = lvl
+            # auto -> omit think (let model decide, thinking models default on)
+        else:
+            if lvl == "off":
+                payload["reasoning_effort"] = "none"
+            elif lvl in ("low", "medium", "high", "max"):
+                payload["reasoning_effort"] = lvl
+            elif lvl == "auto":
+                pass
 
         url = self._chat_url(cloud)
         async with httpx.AsyncClient(timeout=self._timeout()) as client:

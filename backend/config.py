@@ -42,6 +42,7 @@ class Settings(BaseModel):
     workspace: str = str(default_workspace())
     theme: str = "iron"
     mcp_servers: dict[str, dict[str, Any]] = {}
+    reasoning_level: str = "auto"
 
     def resolved_model(self) -> str:
         return self.model or "gemma4:e4b"

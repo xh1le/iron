@@ -329,7 +329,9 @@ code, .mono, kbd { font-family: "IBM Plex Mono", ui-monospace, monospace; }
   transition: all 0.18s var(--ease);
 }
 .model-trigger:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); color: var(--text); transform: translateY(-1px); }
+.model-trigger:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
 .model-picker.open .model-trigger { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.22); color: var(--text); box-shadow: 0 4px 16px rgba(0,0,0,0.14); }
+.model-picker.disabled { opacity: 0.6; }
 .model-label { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chev { font-size: 10px; opacity: 0.6; transition: transform 0.22s var(--ease); display: inline-block; }
 .chev.up { transform: rotate(180deg); }
@@ -430,6 +432,10 @@ code, .mono, kbd { font-family: "IBM Plex Mono", ui-monospace, monospace; }
 }
 @keyframes msgIn { from { opacity: 0; transform: translateY(6px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .think-msg { color: var(--think); white-space: pre-wrap; }
+.think-msg[open] summary { margin-bottom: 6px; }
+.think-msg summary { cursor: pointer; list-style: none; user-select: none; -webkit-user-select: none; }
+.think-msg summary::-webkit-details-marker { display: none; }
+.think-msg .think-body { white-space: pre-wrap; max-height: 320px; overflow: auto; }
 .final { border-color: rgba(125, 206, 160, 0.26); background: rgba(125,206,160,0.06); }
 .ask { border-color: rgba(224, 192, 122, 0.28); }
 .msg.plan { white-space: normal; }

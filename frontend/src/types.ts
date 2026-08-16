@@ -123,6 +123,7 @@ export type Settings = {
   workspace: string;
   theme: string;
   mcp_servers: Record<string, Record<string, unknown>>;
+  reasoning_level: string;
 };
 
 export type IronEvent = {

@@ -85,6 +85,7 @@ class SettingsIn(BaseModel):
     workspace: str | None = None
     theme: str | None = None
     mcp_servers: dict[str, dict[str, Any]] | None = None
+    reasoning_level: str | None = None
 
 
 class RunIn(BaseModel):
@@ -94,6 +95,7 @@ class RunIn(BaseModel):
     chat_id: str | None = None
     project_id: str | None = None
     attachments: list[dict[str, Any]] = Field(default_factory=list)
+    reasoning_level: str | None = None
 
 
 class ProjectIn(BaseModel):
