@@ -78,7 +78,11 @@ export default function ReasoningPicker({ value, options, onChange, disabled }: 
     const spaceBelow = window.innerHeight - r.bottom;
     const spaceAbove = r.top;
     const below = spaceBelow > estH || spaceBelow > spaceAbove;
-    const width = Math.min(Math.max(r.width, 200), window.innerWidth - 24);
+    const longest = Math.max(
+      10,
+      ...options.map((o) => `${LABELS[o] || o}  ${DESCS[o] || ""}`.length),
+    );
+    const width = Math.min(Math.max(176, longest * 7.2 + 44), 260, window.innerWidth - 24);
     const left = Math.min(Math.max(8, r.left), window.innerWidth - width - 8);
     if (below) setPos({ top: r.bottom + 8, bottom: "auto", left, width });
     else setPos({ top: "auto", bottom: window.innerHeight - r.top + 8, left, width });
@@ -99,12 +103,14 @@ export default function ReasoningPicker({ value, options, onChange, disabled }: 
   const menu =
     open && pos ? (
       <div
-        className="model-menu"
+        className="model-menu reasoning-menu"
         role="listbox"
         style={{
           position: "fixed",
           left: pos.left,
           width: pos.width,
+          maxWidth: pos.width,
+          right: "auto",
           top: pos.top,
           bottom: pos.bottom,
           zIndex: 9999,
