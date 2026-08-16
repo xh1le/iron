@@ -6,10 +6,11 @@ type Props = {
   options: string[];
   onChange: (v: string) => void;
   placeholder?: string;
+  withPlaceholder?: boolean;
   onOpen?: () => void;
 };
 
-export default function ModelPicker({ value, options, onChange, placeholder = "auto", onOpen }: Props) {
+export default function ModelPicker({ value, options, onChange, placeholder = "auto", withPlaceholder = true, onOpen }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number | string; bottom: number | string; left: number; width: number } | null>(null);
@@ -36,7 +37,7 @@ export default function ModelPicker({ value, options, onChange, placeholder = "a
     const below = spaceBelow > estH || spaceBelow > spaceAbove;
 
     // size to longest option (mono ~7.4px/char at 12px) + padding/check, clamped to viewport
-    const longest = Math.max(placeholder.length, ...options.map((o) => o.length), 8);
+    const longest = Math.max((withPlaceholder ? placeholder.length : 0), ...options.map((o) => o.length), 8);
     const width = Math.min(Math.max(r.width, 200, longest * 7.4 + 52), window.innerWidth - 24);
     const left = Math.min(Math.max(8, r.left), window.innerWidth - width - 8);
 
@@ -53,9 +54,9 @@ export default function ModelPicker({ value, options, onChange, placeholder = "a
     window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", onScroll);
     return () => { window.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", onScroll); };
-  }, [open, options, placeholder]);
+  }, [open, options, placeholder, withPlaceholder]);
 
-  const all = ["", ...options];
+  const all = withPlaceholder ? (["", ...options] as string[]) : [...options];
 
   const menu = open && pos ? (
     <div

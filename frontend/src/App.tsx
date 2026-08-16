@@ -1220,10 +1220,7 @@ export function App() {
                   )}
                   <div className="mcp-form">
                     <input placeholder="name (filesystem, brave, …)" value={mcpForm.name} onChange={(e) => setMcpForm({ ...mcpForm, name: e.target.value })} />
-                    <select value={mcpForm.type} onChange={(e) => setMcpForm({ ...mcpForm, type: e.target.value })}>
-                      <option value="stdio">stdio</option>
-                      <option value="http">http</option>
-                    </select>
+                    <ModelPicker value={mcpForm.type} options={["stdio", "http"]} withPlaceholder={false} onChange={(v) => setMcpForm({ ...mcpForm, type: v })} />
                     {mcpForm.type === "stdio" ? (
                       <>
                         <input placeholder="command (npx, python, …)" value={mcpForm.command} onChange={(e) => setMcpForm({ ...mcpForm, command: e.target.value })} />
