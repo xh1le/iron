@@ -1173,20 +1173,20 @@ export function App() {
                     use a remote model for planning
                   </label>
                   {settings.use_cloud_orchestrator && (
-                    <>
+                    <div className="cloud-fields">
                       <label>
                         base url
-                        <input value={settings.cloud_base_url} onChange={(e) => saveSettings({ cloud_base_url: e.target.value })} />
+                        <input value={settings.cloud_base_url} placeholder="https://api.openai.com/v1" onChange={(e) => saveSettings({ cloud_base_url: e.target.value })} />
                       </label>
                       <label>
                         model
-                        <input value={settings.cloud_model} onChange={(e) => saveSettings({ cloud_model: e.target.value })} />
+                        <input value={settings.cloud_model} placeholder="gpt-4o, claude-3.5-sonnet, …" onChange={(e) => saveSettings({ cloud_model: e.target.value })} />
                       </label>
                       <label>
                         api key
-                        <input type="password" value={settings.cloud_api_key} onChange={(e) => saveSettings({ cloud_api_key: e.target.value })} />
+                        <input type="password" value={settings.cloud_api_key} placeholder="sk-…" onChange={(e) => saveSettings({ cloud_api_key: e.target.value })} />
                       </label>
-                    </>
+                    </div>
                   )}
                 </section>
                 <section>
