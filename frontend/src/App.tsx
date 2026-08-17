@@ -137,6 +137,7 @@ export function App() {
   const [files, setFiles] = useState<Attachment[]>([]);
   const [orchText, setOrchText] = useState<Record<string, string>>({});
   const [orchThink, setOrchThink] = useState<Record<string, string>>({});
+  const [thinkOpen, setThinkOpen] = useState<Record<string, boolean>>({});
   const [plans, setPlans] = useState<Record<string, { title: string; goal: string }[]>>({});
   const [traces, setTraces] = useState<Record<string, Trace[]>>({});
   const [agents, setAgents] = useState<Record<string, AgentSnapshot[]>>({});
@@ -1120,8 +1121,14 @@ export function App() {
       <div key={m.id} className="msg-row">
         <div className="turn">
           {orchThink[rid] && (
-            <details className="msg think-msg" open>
-              <summary>▹ reasoning ({settings?.reasoning_level || "auto"})</summary>
+            <details className={`msg think-msg ${thinkOpen[rid] ? "open" : ""}`} open={thinkOpen[rid]}>
+              <summary onClick={(e) => { e.preventDefault(); setThinkOpen((p) => ({ ...p, [rid]: !p[rid] })); }}>
+                <span className="think-head">
+                  <span>▹ reasoning ({settings?.reasoning_level || "auto"})</span>
+                  <span className={`chev ${thinkOpen[rid] ? "up" : ""}`} aria-hidden="true">▾</span>
+                </span>
+                {!thinkOpen[rid] && <span className="think-live">{orchThink[rid]}</span>}
+              </summary>
               <div className="think-body">{orchThink[rid]}</div>
             </details>
           )}
@@ -1216,11 +1223,14 @@ export function App() {
           <div className="side-divider" aria-hidden="true" />
 
           {projectFiles.length > 0 && (
-            <div className="files-preview">
-              <div className="section-head tight">
+            <details className="files-preview" open>
+              <summary className="section-head tight">
                 <h3>files</h3>
-                <span className="count">{projectFiles.length}</span>
-              </div>
+                <span className="head-right">
+                  <span className="count">{projectFiles.length}</span>
+                  <span className="chev" aria-hidden="true">▾</span>
+                </span>
+              </summary>
               <div className="file-list">
                 {projectFiles.slice(0, 8).map((f) => (
                   <div key={f.name} className={`file-item ${f.is_dir ? "dir" : ""}`} title={f.name}>
@@ -1230,7 +1240,7 @@ export function App() {
                   </div>
                 ))}
               </div>
-            </div>
+            </details>
           )}
 
           <div className="section-head">
