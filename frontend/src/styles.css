@@ -648,6 +648,10 @@ code, .mono, kbd { font-family: "IBM Plex Mono", ui-monospace, monospace; }
 .icon-mini.danger:hover { background: rgba(224,122,122,0.16); color: #ffb4b4; }
 .new-project { width: 100%; justify-content: center; border-top: 1px solid rgba(255,255,255,0.08); margin-top: 4px; padding-top: 8px; color: var(--muted); }
 .new-project.kbd-active { background: rgba(255,255,255,0.08); color: var(--text); }
+.new-project.choose-folder { border-top: 0; margin-top: 0; padding-top: 4px; font-size: 11px; }
+.folder-row { display: flex; align-items: center; gap: 8px; }
+.folder-row input { flex: 1; min-width: 0; }
+.folder-row .ghost { flex-shrink: 0; white-space: nowrap; }
 
 .modal-backdrop { position: fixed; inset: 0; background: rgba(4,6,10,0.52); backdrop-filter: blur(10px) saturate(140%); -webkit-backdrop-filter: blur(10px) saturate(140%); display: grid; place-items: center; z-index: 50; animation: fadeIn 0.18s var(--ease-out) both; }
 .modal { width: min(420px, calc(100% - 32px)); background: linear-gradient(180deg, rgba(28,32,40,0.92), rgba(18,22,30,0.96)); border: 1px solid rgba(255,255,255,0.14); border-radius: 18px; padding: 18px; box-shadow: 0 24px 60px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.14); animation: panelIn 0.24s var(--ease-out) both; }

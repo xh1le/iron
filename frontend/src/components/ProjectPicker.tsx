@@ -8,6 +8,7 @@ type Props = {
   onChange: (id: string) => void;
   onDelete: (id: string) => void;
   onNew: () => void;
+  onFolder: () => void;
 };
 
 function shortPath(path: string): string {
@@ -18,7 +19,7 @@ function shortPath(path: string): string {
   return "…/" + parts.slice(-2).join("/");
 }
 
-export default function ProjectPicker({ projects, value, onChange, onDelete, onNew }: Props) {
+export default function ProjectPicker({ projects, value, onChange, onDelete, onNew, onFolder }: Props) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const ref = useRef<HTMLDivElement>(null);
@@ -168,6 +169,17 @@ export default function ProjectPicker({ projects, value, onChange, onDelete, onN
           onMouseEnter={() => setActiveIndex(projects.length)}
         >
           + new project
+        </button>
+        <button
+          type="button"
+          className="model-option new-project choose-folder"
+          title="point the current project at a real folder on disk"
+          onClick={() => {
+            setOpen(false);
+            onFolder();
+          }}
+        >
+          choose folder…
         </button>
       </div>
     ) : null;

@@ -38,6 +38,23 @@ def _reveal_in_explorer(path: str) -> None:
         subprocess.Popen(["xdg-open", str(p)])
 
 
+def _pick_folder() -> str | None:
+    """Native folder chooser (desktop app). Returns None on cancel/headless."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        root.update_idletasks()
+        chosen = filedialog.askdirectory(title="choose project folder")
+        root.destroy()
+        return chosen or None
+    except Exception:
+        return None
+
+
 def create_app() -> FastAPI:
     settings = load_settings()
     bus = EventBus()
@@ -217,6 +234,13 @@ def create_app() -> FastAPI:
             return {"ok": True}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
+
+    @app.post("/api/folder-picker")
+    async def folder_picker() -> dict[str, Any]:
+        path = await asyncio.to_thread(_pick_folder)
+        if not path:
+            return {"cancelled": True}
+        return {"path": path}
 
     @app.get("/api/chats")
     async def list_chats(project_id: str | None = None) -> dict[str, Any]:

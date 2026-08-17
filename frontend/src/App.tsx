@@ -3,7 +3,6 @@ import Iridescence from "./components/Iridescence";
 import CommandMenu, { HelpModal, matchCommands, type Command } from "./components/CommandMenu";
 import Confirm from "./components/Confirm";
 import Markdown from "./components/Markdown";
-import Modal from "./components/Modal";
 import ModelPicker from "./components/ModelPicker";
 import ProjectPicker from "./components/ProjectPicker";
 import ReasoningPicker, { getReasoningOptions } from "./components/ReasoningPicker";
@@ -117,6 +116,9 @@ export function App() {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState<"chat" | "settings">("chat");
   const [showNewProject, setShowNewProject] = useState(false);
+  const [newProjName, setNewProjName] = useState("");
+  const [newProjPath, setNewProjPath] = useState("");
+  const [pickingFolder, setPickingFolder] = useState(false);
   const [toast, setToast] = useState("");
   const [editingMsg, setEditingMsg] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
@@ -561,12 +563,12 @@ export function App() {
     stickRef.current = true;
   }
 
-  async function newProject(name: string) {
+  async function newProject(name: string, workspace = "") {
     if (!name.trim()) return;
     try {
       const item = await api.json<Project>("/api/projects", {
         method: "POST",
-        body: JSON.stringify({ name, workspace: "" }),
+        body: JSON.stringify({ name, workspace }),
       });
       if ((item as unknown as { error?: string }).error) return;
       setProjects((prev) => [...prev, item]);
@@ -574,6 +576,28 @@ export function App() {
     } catch {
       flash("couldn't create project");
     }
+  }
+
+  async function pickFolder(): Promise<string | null> {
+    try {
+      const res = await api.json<{ path?: string; cancelled?: boolean }>("/api/folder-picker", { method: "POST" });
+      return res.path || null;
+    } catch {
+      flash("couldn't open folder picker");
+      return null;
+    }
+  }
+
+  function openNewProject() {
+    setNewProjName("");
+    setNewProjPath("");
+    setShowNewProject(true);
+  }
+
+  async function pickFolderForProject() {
+    if (!project) return;
+    const p = await pickFolder();
+    if (p) saveProjectWorkspace(p);
   }
 
   async function deleteProject(id: string) {
@@ -1200,7 +1224,7 @@ export function App() {
               <span>new chat</span>
               <kbd>↵</kbd>
             </button>
-            <ProjectPicker projects={projects} value={projectId} onChange={switchProject} onDelete={deleteProject} onNew={() => setShowNewProject(true)} />
+            <ProjectPicker projects={projects} value={projectId} onChange={switchProject} onDelete={deleteProject} onNew={openNewProject} onFolder={pickFolderForProject} />
             {project && (
               <div className="project-folder" title={project.workspace || "no folder assigned"}>
                 <span className="folder-icon" aria-hidden="true">▦</span>
@@ -1354,7 +1378,17 @@ export function App() {
                   {project && (
                     <label>
                       this project
-                      <input value={project.workspace} onChange={(e) => saveProjectWorkspace(e.target.value)} />
+                      <div className="folder-row">
+                        <input className="mono" value={project.workspace} onChange={(e) => saveProjectWorkspace(e.target.value)} />
+                        <button type="button" className="ghost" disabled={pickingFolder} onClick={async () => {
+                          setPickingFolder(true);
+                          const p = await pickFolder();
+                          setPickingFolder(false);
+                          if (p) saveProjectWorkspace(p);
+                        }}>
+                          {pickingFolder ? "…" : "browse"}
+                        </button>
+                      </div>
                     </label>
                   )}
                   <label>
@@ -1568,7 +1602,40 @@ export function App() {
           </div>
         </aside>
       </div>
-      <Modal open={showNewProject} title="new project" placeholder="project name" initial="" onClose={() => setShowNewProject(false)} onConfirm={(name) => { setShowNewProject(false); newProject(name); }} />
+      {showNewProject && (
+        <div className="modal-backdrop" onClick={() => setShowNewProject(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="new project">
+            <h3>new project</h3>
+            <input
+              value={newProjName}
+              onChange={(e) => setNewProjName(e.target.value)}
+              placeholder="project name"
+              autoFocus
+              onKeyDown={(e) => { if (e.key === "Enter" && newProjName.trim()) { const n = newProjName.trim(); const w = newProjPath; setShowNewProject(false); setNewProjName(""); setNewProjPath(""); newProject(n, w); } }}
+            />
+            <div className="folder-row">
+              <input
+                className="mono"
+                value={newProjPath}
+                onChange={(e) => setNewProjPath(e.target.value)}
+                placeholder="folder (optional — empty auto-creates)"
+              />
+              <button type="button" className="ghost" disabled={pickingFolder} onClick={async () => {
+                setPickingFolder(true);
+                const p = await pickFolder();
+                setPickingFolder(false);
+                if (p) setNewProjPath(p);
+              }}>
+                {pickingFolder ? "…" : "browse"}
+              </button>
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="ghost" onClick={() => { setShowNewProject(false); setNewProjName(""); setNewProjPath(""); }}>cancel</button>
+              <button type="button" className="solid" disabled={!newProjName.trim()} onClick={() => { const n = newProjName.trim(); const w = newProjPath; setShowNewProject(false); setNewProjName(""); setNewProjPath(""); newProject(n, w); }}>create</button>
+            </div>
+          </div>
+        </div>
+      )}
       <Confirm
         open={!!confirmDelete?.chatId}
         title="delete chat?"
