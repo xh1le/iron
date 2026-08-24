@@ -153,3 +153,61 @@ def test_depth_limit(tmp_path):
     depths = sorted(a.depth for a in run.agents.values())
     assert depths == [1, 2]
     assert (tmp_path / "z.txt").read_text(encoding="utf-8") == "Z"
+
+
+class EmptyGoalClient:
+    def __init__(self) -> None:
+        self.orch = 0
+
+    async def stream_chat(self, **kwargs: Any):
+        messages = kwargs.get("messages") or []
+        if "orchestrator" in str(messages[0].get("content") or ""):
+            self.orch += 1
+            if not any(m.get("role") == "tool" for m in messages):
+                yield chunk_tool("spawn_task", {"title": "ghost", "goal": "   "}, 0, "empty")
+                yield chunk_tool("spawn_task", {"title": "real", "goal": "write real.txt with REAL"}, 1, "real")
+                return
+            yield chunk_tool("finish", {"summary": "done"})
+            return
+        # worker: actually write the file, then report
+        if not any(m.get("role") == "tool" for m in messages):
+            yield chunk_tool("write_file", {"path": "real.txt", "content": "REAL"}, 0, "w")
+            return
+        yield chunk_text("ok")
+
+
+def test_spawn_with_empty_goal_is_skipped(tmp_path):
+    async def go() -> Run:
+        settings = Settings(workspace=str(tmp_path), max_agent_steps=4, max_orchestrator_rounds=3, model="fake")
+        engine = Engine(settings, EventBus(), builtin_tools())
+        engine.client = EmptyGoalClient()  # type: ignore[assignment]
+        run = await engine.create_run("spawn real")
+        assert run.task is not None
+        await run.task
+        return run
+
+    run = asyncio.run(go())
+    assert run.status == "done"
+    titles = [a.title for a in run.agents.values()]
+    assert titles == ["real"]
+    assert (tmp_path / "real.txt").read_text(encoding="utf-8") == "REAL"
+
+
+def test_prune_runs_keeps_recent_terminal(tmp_path):
+    engine = Engine(Settings(workspace=str(tmp_path), model="fake"), EventBus(), builtin_tools())
+
+    def fake_run(rid: str, status: str, ts: int) -> Run:
+        run = object.__new__(Run)
+        run.id = rid
+        run.status = status
+        run.updated_at = ts
+        return run
+
+    for i in range(60):
+        engine.runs[f"run_{i}"] = fake_run(f"run_{i}", "done" if i < 55 else "running", i)
+    engine._prune_runs(keep=10)
+    terminal = [r for r in engine.runs.values() if r.status == "done"]
+    # only the newest 10 terminal runs survive, and live runs always stay
+    assert len(terminal) == 10
+    assert all(r.status == "running" for r in engine.runs.values() if r.id.startswith("run_55"))
+    assert "run_0" not in engine.runs

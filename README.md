@@ -27,7 +27,18 @@ python run.py --dev    # vite + reload
 
 ## Config
 
-Settings live in the UI and `~/.iron/config.json`. Default workspace is `D:\iron\workspace`.
+Settings live in the UI and `~/.iron/config.json`. Set `IRON_HOME` to a custom
+directory to move all iron state (config, store, uploads) — useful for testing
+or portable setups. Default workspace is `D:\iron\workspace`.
+
+## Agent tools
+
+Workers get: `read_file`, `write_file`, `edit_file`, `list_dir`, `search`,
+`shell`, `python`, `web_search` (DuckDuckGo, no key), `web_fetch`, plus
+`memory_get` / `memory_put` shared memory and `spawn_subagent` for nested
+tasks. The orchestrator can `spawn_task` parallel workers, `ask_user` for
+input, and `finish` with a summary. Any configured MCP servers add their tools
+as `mcp__<server>__<tool>`.
 
 ## Security
 

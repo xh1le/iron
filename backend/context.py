@@ -52,13 +52,19 @@ def compact_messages(messages: list[dict[str, Any]], budget_tokens: int) -> int:
         total -= dropped_tokens
         removed += dropped_tokens
         if dropped.get("role") == "assistant":
+            # Drop every tool result produced by this assistant call. They may
+            # not sit right at index 2 (other turns interleave), and a tool
+            # message with no preceding assistant call confuses the transcript.
             call_ids = {c.get("id") for c in (dropped.get("tool_calls") or []) if c.get("id")}
-            while call_ids and len(messages) > 6 and messages[2].get("role") == "tool":
-                m = messages[2]
-                if m.get("tool_call_id") not in call_ids:
-                    break
-                messages.pop(2)
-                total -= estimate_messages([m])
+            if call_ids:
+                kept: list[dict[str, Any]] = []
+                for m in messages:
+                    if m.get("role") == "tool" and m.get("tool_call_id") in call_ids:
+                        total -= estimate_messages([m])
+                        removed += estimate_messages([m])
+                    else:
+                        kept.append(m)
+                messages[:] = kept
     return removed
 
 

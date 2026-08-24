@@ -7,6 +7,7 @@ from typing import Any
 from . import exec as exec_mod
 from . import fs
 from . import shell as shell_mod
+from . import web
 
 Handler = Callable[[dict[str, Any], "ToolContext"], Awaitable[str]]
 
@@ -296,6 +297,33 @@ def builtin_tools() -> ToolRegistry:
                 "required": ["key", "value"],
             },
             _memory_put,
+        )
+    )
+    registry.register(
+        ToolSpec(
+            "web_search",
+            "Search the web (DuckDuckGo, no key). Returns ranked title/url/snippet results. Use to look up docs, APIs, errors.",
+            {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "max_results": {"type": "integer", "description": "default 6, max 10"},
+                },
+                "required": ["query"],
+            },
+            web.handler_search,
+        )
+    )
+    registry.register(
+        ToolSpec(
+            "web_fetch",
+            "Fetch a URL and return its readable text. Use after web_search to read a page. Caps output at ~8000 chars.",
+            {
+                "type": "object",
+                "properties": {"url": {"type": "string"}, "max_chars": {"type": "integer"}},
+                "required": ["url"],
+            },
+            web.handler_fetch,
         )
     )
     registry.register(

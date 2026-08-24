@@ -125,6 +125,7 @@ async def capture(
     timeout, cancellation, or output overflow (output is truncated to `cap`).
     """
     cancel_event = threading.Event()
+    done_event = threading.Event()
     result: dict[str, object] = {}
     task = asyncio.create_task(
         asyncio.to_thread(_run_sync, argv, cwd=cwd, env=env, timeout=timeout, cap=cap, shell=shell, cancel_event=cancel_event, result=result)
@@ -133,12 +134,15 @@ async def capture(
     watcher: threading.Thread | None = None
     if cancel is not None:
         def watch() -> None:
-            while not cancel.is_set():
+            # Exit when the call finishes; without this the watcher busy-loops
+            # forever once the subprocess ends (zombie thread per shell call).
+            while not cancel.is_set() and not done_event.is_set():
                 time.sleep(0.05)
-            cancel_event.set()
-            proc = result.get("proc")
-            if proc is not None:
-                _kill_tree(proc)  # type: ignore[arg-type]
+            if cancel.is_set() and not done_event.is_set():
+                cancel_event.set()
+                proc = result.get("proc")
+                if proc is not None:
+                    _kill_tree(proc)  # type: ignore[arg-type]
 
         watcher = threading.Thread(target=watch, daemon=True)
         watcher.start()
@@ -153,6 +157,7 @@ async def capture(
         await asyncio.gather(task, return_exceptions=True)
         raise
     finally:
+        done_event.set()
         if watcher is not None and watcher.is_alive():
             watcher.join(timeout=2)
 

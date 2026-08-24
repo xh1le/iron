@@ -62,6 +62,28 @@ def test_dedupe_tool_result():
     assert dedupe_tool_result(messages, "list_dir", "different") == "different"
 
 
+def test_compact_removes_nonadjacent_tool_results():
+    """Regression: a tool result whose assistant call was dropped must be
+    removed even when it is not adjacent to the pop position, otherwise the
+    transcript is left with orphaned tool messages."""
+    messages = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "u"},
+        {"role": "assistant", "content": "a1" * 2000, "tool_calls": [{"id": "c1", "function": {"name": "read_file", "arguments": "{}"}}]},
+        {"role": "assistant", "content": "a2" * 2000, "tool_calls": [{"id": "c2", "function": {"name": "read_file", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "c2", "content": "t2" * 2000},
+        {"role": "tool", "tool_call_id": "c1", "content": "t1" * 2000},
+        {"role": "assistant", "content": "tail"},
+    ]
+    removed = compact_messages(messages, ctx_budget(8192, 0.5))
+    assert removed > 0
+    for m in messages:
+        assert m.get("tool_call_id") != "c1", f"orphaned tool result survived: {m}"
+        assert not (m.get("role") == "assistant" and any(c.get("id") == "c1" for c in (m.get("tool_calls") or [])))
+    assert messages[0]["role"] == "system"
+    assert messages[-1]["content"] == "tail"
+
+
 def test_build_memory_block_injects_facts(tmp_path, monkeypatch):
     monkeypatch.setattr("backend.store.iron_home", lambda: tmp_path)
     from backend.store import Store

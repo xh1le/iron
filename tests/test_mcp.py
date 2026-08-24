@@ -163,6 +163,26 @@ async def test_registry_sync():
 
 
 @pytest.mark.asyncio
+async def test_registry_handlers_route_to_their_own_tool():
+    """Regression: handlers used to capture the loop variable by reference,
+    so every MCP tool routed to the last tool in the last server."""
+    manager = InMemoryManager(
+        {"alpha": {"type": "stdio", "command": "fake"}, "beta": {"type": "stdio", "command": "fake"}}
+    )
+    await manager.prewarm()
+    registry = ToolRegistry()
+    registry.sync_mcp(manager)
+    echo = await registry._tools["mcp__alpha__echo"].handler({"text": "hi"}, None)
+    add = await registry._tools["mcp__alpha__add_numbers"].handler({"a": 1, "b": 2}, None)
+    assert echo == "echo:hi"
+    assert add == "3.0"
+    # each server's own copy of the same-named tool routes to that server
+    b_echo = await registry._tools["mcp__beta__echo"].handler({"text": "yo"}, None)
+    assert b_echo == "echo:yo"
+    await manager.disconnect_all()
+
+
+@pytest.mark.asyncio
 async def test_snapshot_status_after_failed_connect():
     manager = MCPManager({"broken": {"type": "http", "url": "http://127.0.0.1:1/mcp"}})
     await manager.prewarm()

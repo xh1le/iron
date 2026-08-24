@@ -306,8 +306,11 @@ class MCPManager:
             for tool in conn.tools:
                 full = tool_full_name(name, tool["name"])
 
-                async def handler(args: dict[str, Any], _ctx: Any) -> str:
-                    return await self.call_tool(full, args)
+                # Bind `full` per iteration: a plain closure would capture the
+                # loop variable by reference, so every handler would route to
+                # the last tool in the last server.
+                async def handler(args: dict[str, Any], _ctx: Any, _full: str = full) -> str:
+                    return await self.call_tool(_full, args)
 
                 specs.append(
                     ToolSpec(

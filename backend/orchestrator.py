@@ -295,15 +295,30 @@ class Run:
                 messages.append({"role": "assistant", "content": content or "", "tool_calls": tool_calls})
 
                 spawn_jobs: list[tuple[dict[str, Any], str, str]] = []
+                skipped_spawns: list[tuple[dict[str, Any], str, str]] = []
                 other: list[tuple[dict[str, Any], str, dict[str, Any]]] = []
                 for call in tool_calls:
                     fn = call.get("function") or {}
                     name = fn.get("name") or ""
                     args = parse_tool_args(fn.get("arguments") or "")
                     if name == "spawn_task":
-                        spawn_jobs.append((call, str(args.get("title") or "worker"), str(args.get("goal") or "")))
+                        goal = str(args.get("goal") or "").strip()
+                        if not goal:
+                            skipped_spawns.append((call, str(args.get("title") or "worker"), "spawn skipped: goal required"))
+                        else:
+                            spawn_jobs.append((call, str(args.get("title") or "worker"), goal))
                     else:
                         other.append((call, name, args))
+
+                if skipped_spawns:
+                    for call, title, reason in skipped_spawns:
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": call.get("id") or "call_spawn",
+                                "content": f"worker '{title}' {reason}",
+                            }
+                        )
 
                 if spawn_jobs:
                     await self._emit("run.plan", tasks=[{"title": t, "goal": g} for _, t, g in spawn_jobs])
@@ -523,8 +538,19 @@ class Engine:
         run.extra_context = extra_context
         run.on_done = on_done
         self.runs[run.id] = run
+        self._prune_runs()
         await run.start()
         return run
+
+    def _prune_runs(self, keep: int = 40) -> None:
+        """Finished runs are only needed live; drop the oldest terminal ones so
+        a long session does not accumulate every run's agents and messages."""
+        terminal = [r for r in self.runs.values() if r.status in {"done", "failed", "cancelled"}]
+        if len(terminal) <= keep:
+            return
+        terminal.sort(key=lambda r: r.updated_at)
+        for run in terminal[: len(terminal) - keep]:
+            self.runs.pop(run.id, None)
 
     def get(self, run_id: str) -> Run | None:
         return self.runs.get(run_id)

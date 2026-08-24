@@ -123,6 +123,8 @@ class Agent:
             "search",
             "shell",
             "python",
+            "web_search",
+            "web_fetch",
             "memory_get",
             "memory_put",
         ]

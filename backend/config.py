@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,11 @@ from pydantic import BaseModel, Field
 
 
 def iron_home() -> Path:
+    override = os.environ.get("IRON_HOME", "").strip()
+    if override:
+        home = Path(override).expanduser()
+        home.mkdir(parents=True, exist_ok=True)
+        return home
     return Path.home() / ".iron"
 
 
