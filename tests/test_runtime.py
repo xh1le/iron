@@ -193,6 +193,73 @@ def test_spawn_with_empty_goal_is_skipped(tmp_path):
     assert (tmp_path / "real.txt").read_text(encoding="utf-8") == "REAL"
 
 
+class RecordingClient:
+    """Records the model every stream_chat call used."""
+
+    def __init__(self, available: list[str]) -> None:
+        self.available = available
+        self.models: list[str] = []
+
+    async def list_models(self) -> list[dict[str, Any]]:
+        return [{"name": n} for n in self.available]
+
+    async def stream_chat(self, **kwargs: Any):
+        self.models.append(kwargs.get("model") or "")
+        messages = kwargs.get("messages") or []
+        if "orchestrator" in str(messages[0].get("content") or ""):
+            yield chunk_text("nothing to do")
+            return
+        yield chunk_text("done")
+
+
+def test_per_run_model_reaches_the_orchestrator(tmp_path):
+    """A per-run model must apply to the orchestrator too — it runs first, so
+    a stale global model there means the run 404s before any worker starts."""
+
+    async def go() -> RecordingClient:
+        settings = Settings(
+            workspace=str(tmp_path),
+            model="global:1b",
+            orchestrator_model="",
+            max_agent_steps=2,
+            max_orchestrator_rounds=1,
+        )
+        engine = Engine(settings, EventBus(), builtin_tools())
+        client = RecordingClient(["picked:1b"])
+        engine.client = client  # type: ignore[assignment]
+        run = await engine.create_run("do it", model="picked:1b")
+        assert run.task is not None
+        await run.task
+        return client
+
+    client = asyncio.run(go())
+    assert client.models, "no inference happened"
+    assert all(m == "picked:1b" for m in client.models)
+
+
+def test_missing_model_falls_back_to_installed(tmp_path):
+    async def go() -> tuple[RecordingClient, Run]:
+        settings = Settings(
+            workspace=str(tmp_path),
+            model="ghost:70b",
+            orchestrator_model="",
+            max_agent_steps=2,
+            max_orchestrator_rounds=1,
+        )
+        engine = Engine(settings, EventBus(), builtin_tools())
+        client = RecordingClient(["qwen2.5-coder:7b"])
+        engine.client = client  # type: ignore[assignment]
+        run = await engine.create_run("do it")
+        assert run.task is not None
+        await run.task
+        return client, run
+
+    client, run = asyncio.run(go())
+    assert run.model == "qwen2.5-coder:7b"
+    assert run.orch_model == "qwen2.5-coder:7b"
+    assert all(m == "qwen2.5-coder:7b" for m in client.models)
+
+
 def test_prune_runs_keeps_recent_terminal(tmp_path):
     engine = Engine(Settings(workspace=str(tmp_path), model="fake"), EventBus(), builtin_tools())
 

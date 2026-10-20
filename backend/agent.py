@@ -238,6 +238,18 @@ class Agent:
     def _compact(self, messages: list[dict[str, Any]]) -> None:
         compact_messages(messages, self._ctx_budget())
 
+    def _absorb_usage(self, usage: dict[str, Any]) -> None:
+        """Fold an OpenAI-style usage chunk into the agent counters."""
+        prompt = usage.get("prompt_tokens")
+        completion = usage.get("completion_tokens")
+        total = usage.get("total_tokens")
+        if isinstance(prompt, (int, float)):
+            self.prompt_tokens = max(self.prompt_tokens, int(prompt))
+        if isinstance(completion, (int, float)):
+            self.tokens = max(self.tokens, int(completion))
+        elif isinstance(total, (int, float)) and not isinstance(prompt, (int, float)):
+            self.tokens = max(self.tokens, int(total))
+
     async def _infer(self, messages: list[dict[str, Any]], schemas: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
         acc_calls: dict[int, dict[str, Any]] = {}
         parts: list[str] = []
@@ -274,9 +286,8 @@ class Agent:
                         last_emit = out_est
                         await self._emit_usage(prompt_est + out_est, num_ctx, estimated=True)
                     usage = delta.get("usage") or {}
-                    total = usage.get("total_tokens")
-                    if total:
-                        self.tokens = int(total)
+                    if usage:
+                        self._absorb_usage(usage)
         except ModelError as exc:
             raise RuntimeError(str(exc)) from exc
         calls = [acc_calls[i] for i in sorted(acc_calls)]
@@ -284,7 +295,7 @@ class Agent:
         text = "".join(parts)
         if not calls:
             calls = extract_text_tool_calls(text, set(self._tool_names()))
-        final_prompt = max(prompt_est + out_est, (self.tokens or 0))
+        final_prompt = max(prompt_est + out_est, self.prompt_tokens)
         if final_prompt > self.prompt_tokens:
             self.prompt_tokens = final_prompt
         if num_ctx > self.ctx_window:

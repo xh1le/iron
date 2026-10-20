@@ -14,6 +14,7 @@ from .memory import SharedMemory
 from .models import RunSnapshot
 from .ollama import ModelError, OllamaClient, extract_delta, merge_tool_call_deltas, parse_tool_args
 from .parse import extract_text_tool_calls
+from .resolve import resolve_model
 from .retrieval import Embedder
 from .tools.registry import ToolRegistry
 
@@ -435,6 +436,10 @@ class Run:
                     if delta["tool_calls"]:
                         merge_tool_call_deltas(acc_calls, delta["tool_calls"])
                         out_est += 12 * len(delta["tool_calls"])
+                    usage = delta.get("usage") or {}
+                    prompt_u = usage.get("prompt_tokens")
+                    if isinstance(prompt_u, (int, float)):
+                        self.peak_prompt = max(self.peak_prompt, int(prompt_u))
                     if out_est - last_emit >= 256:
                         last_emit = out_est
                         await self._emit_usage(prompt_est + out_est, num_ctx, estimated=True)
@@ -475,6 +480,9 @@ class Engine:
         self.embedder = Embedder(self.client)
         self.mcp = MCPManager(settings.mcp_servers)
         self.runs: dict[str, Run] = {}
+        self.model_note = ""
+        self.orch_model_note = ""
+        self.repair_note = ""
         self.resync()
 
     def resync(self) -> None:
@@ -517,8 +525,26 @@ class Engine:
         reasoning_level: str | None = None,
     ) -> Run:
         ws = workspace or self.settings.workspace
-        worker_model = model or self.settings.resolved_model()
-        orch_model = self.settings.cloud_model if self.settings.use_cloud_orchestrator and self.settings.cloud_model else self.settings.resolved_orchestrator_model()
+        cloud_orch = bool(self.settings.use_cloud_orchestrator and self.settings.cloud_base_url)
+        explicit_orch = (self.settings.orchestrator_model or "").strip()
+
+        # The orchestrator runs first, so its model decides whether the run
+        # happens at all. A per-run model must apply to it too — otherwise the
+        # first call still uses the stale global model and 404s.
+        worker_model = (model or "").strip() or self.settings.resolved_model()
+        if cloud_orch:
+            orch_model = (self.settings.cloud_model or "").strip() or explicit_orch or worker_model
+        else:
+            orch_model = explicit_orch or worker_model
+
+        worker_model, worker_note = await resolve_model(self.client, worker_model)
+        if not cloud_orch:
+            orch_model, orch_note = await resolve_model(self.client, orch_model)
+        else:
+            orch_note = ""
+        self.model_note = worker_note
+        self.orch_model_note = orch_note
+
         run = Run(
             goal=goal,
             settings=self.settings,
@@ -528,7 +554,7 @@ class Engine:
             workspace=ws,
             model=worker_model,
             orch_model=orch_model,
-            cloud=bool(self.settings.use_cloud_orchestrator and self.settings.cloud_base_url),
+            cloud=cloud_orch,
             store=self.store,
             embedder=self.embedder,
             reasoning_level=reasoning_level,
@@ -559,6 +585,63 @@ class Engine:
         items = [r.snapshot() for r in self.runs.values()]
         items.sort(key=lambda r: r.created_at, reverse=True)
         return items[:limit]
+
+    async def model_status(self, items: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        """Compare the configured models against what Ollama actually serves."""
+        model = self.settings.resolved_model()
+        orch = self.settings.resolved_orchestrator_model()
+        try:
+            if items is None:
+                items = await self.client.list_models()
+            names = [str(m.get("name") or "") for m in items if m.get("name")]
+        except Exception as exc:
+            return {
+                "available": [],
+                "model": model,
+                "orchestrator_model": orch,
+                "ok": False,
+                "note": f"cannot reach ollama: {exc}",
+            }
+        missing = [m for m in (model, orch) if m and m not in names]
+        note = ""
+        if not names:
+            note = "no models installed — run `ollama pull <model>`"
+        elif missing:
+            note = f"model '{missing[0]}' is not installed"
+        elif self.repair_note:
+            # Nothing is broken right now, but the configured model was swapped
+            # at startup — the user should know why their choice changed.
+            note = self.repair_note
+        return {
+            "available": names,
+            "model": model,
+            "orchestrator_model": orch,
+            "ok": not missing and bool(names),
+            "note": note,
+        }
+
+    async def resolve_configured_models(self) -> tuple[Settings, str]:
+        """Repair the configured models if they are missing; return (settings, note)."""
+        model, model_note = await resolve_model(self.client, self.settings.resolved_model())
+        orch, orch_note = await resolve_model(self.client, self.settings.resolved_orchestrator_model())
+        notes = [n for n in (model_note, orch_note) if n]
+        if model == self.settings.resolved_model() and orch == self.settings.resolved_orchestrator_model():
+            self.repair_note = ""
+            return self.settings, "; ".join(notes)
+        from .config import merge_settings
+
+        patch: dict[str, Any] = {}
+        if model and model != self.settings.resolved_model():
+            patch["model"] = model
+        if orch and orch != self.settings.resolved_orchestrator_model():
+            patch["orchestrator_model"] = orch
+        if not patch:
+            self.repair_note = ""
+            return self.settings, "; ".join(notes)
+        updated = merge_settings(self.settings, patch)
+        self.reload(updated)
+        self.repair_note = "; ".join(notes)
+        return updated, self.repair_note
 
     def schedule_summary(self, chat_id: str, project_id: str) -> None:
         """Fire-and-forget rolling summary refresh after a run completes."""

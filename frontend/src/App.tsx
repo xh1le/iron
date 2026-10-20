@@ -109,6 +109,7 @@ export function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [models, setModels] = useState<string[]>([]);
   const [modelError, setModelError] = useState("");
+  const [modelNote, setModelNote] = useState("");
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<string>("");
   const [chats, setChats] = useState<Chat[]>([]);
@@ -212,8 +213,11 @@ export function App() {
     let ws: WebSocket | null = null;
     let timer: number | undefined;
     let stopped = false;
-    const connect = () => {
-      if (!apiToken) void fetchToken();
+    const connect = async () => {
+      // The token is minted per launch; fetching it before the first connect
+      // avoids a guaranteed 4401 rejection on every page load.
+      if (!apiToken) await fetchToken();
+      if (stopped) return;
       const proto = location.protocol === "https:" ? "wss" : "ws";
       ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(apiToken)}`);
       ws.onopen = () => {
@@ -221,9 +225,17 @@ export function App() {
         loadModels(1);
         resync();
       };
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
         setLive(false);
-        if (!stopped) timer = window.setTimeout(connect, 1200);
+        if (stopped) return;
+        // 4401 = bad token (server restarted). Fetch a fresh one, then retry.
+        if (ev.code === 4401) {
+          void fetchToken().then(() => {
+            if (!stopped) timer = window.setTimeout(() => void connect(), 120);
+          });
+          return;
+        }
+        timer = window.setTimeout(() => void connect(), 1200);
       };
       ws.onerror = () => setLive(false);
       ws.onmessage = (ev) => {
@@ -234,7 +246,7 @@ export function App() {
         }
       };
     };
-    connect();
+    void connect();
     return () => {
       stopped = true;
       if (timer) window.clearTimeout(timer);
@@ -403,14 +415,16 @@ export function App() {
   async function loadModels(retries = 0) {
     for (let i = 0; i <= retries; i++) {
       try {
-        const m = await api.json<{ models: { name: string }[]; error?: string }>("/api/models");
+        const m = await api.json<{ models: { name: string }[]; error?: string; note?: string }>("/api/models");
         const names = (m.models || []).map((x) => x.name);
         if (names.length > 0) {
           setModels(names);
           setModelError(m.error || "");
+          setModelNote(m.note || "");
           return names;
         }
         setModelError(m.error || "no models found — is ollama running?");
+        setModelNote(m.note || "");
       } catch {
         setModelError("can't reach ollama");
       }
@@ -1029,6 +1043,16 @@ export function App() {
     setFiles((prev) => [...prev, ...uploaded]);
   }
 
+  const modelBanner = modelNote ? (
+    <div className="notice" role="status">
+      <span className="notice-dot" aria-hidden="true" />
+      <span className="notice-text">{modelNote}</span>
+      <button type="button" className="ghost tiny" onClick={() => void loadModels(1)}>
+        refresh
+      </button>
+    </div>
+  ) : null;
+
   const composer = (
     <div className="composer">
       {files.length > 0 && (
@@ -1495,6 +1519,7 @@ export function App() {
               <div className="landing">
                 <h2>give iron a goal</h2>
                 <p>projects, history, uploads — then the swarm takes it</p>
+                {modelBanner}
                 {composer}
                 <div className="chips">
                   {SUGGESTIONS.map((s) => (
@@ -1545,6 +1570,7 @@ export function App() {
                   </div>
                 </header>
                 <div className="stream" ref={streamRef}>
+                  {modelBanner}
                   {chat.messages.filter((m) => m.role === "user" || m.content || m.run_id).map(renderMessage)}
                 </div>
                 {composer}

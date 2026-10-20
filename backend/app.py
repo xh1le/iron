@@ -66,19 +66,15 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         Path(app.state.settings.workspace).mkdir(parents=True, exist_ok=True)
-        current = app.state.settings
-        if not current.model:
-            try:
-                models = await app.state.engine.client.list_models()
-            except Exception:
-                models = []
-            if models:
-                preferred = ("gemma4:e4b", "gemma4:12b", "gemma4:e2b")
-                names = [m["name"] for m in models]
-                pick = next((n for n in preferred if n in names), names[0])
-                updated = merge_settings(current, {"model": pick})
-                app.state.settings = updated
-                app.state.engine.reload(updated)
+        # The configured model may have been uninstalled since the last launch.
+        # Repair it up front instead of failing every run with a 404.
+        try:
+            updated, note = await app.state.engine.resolve_configured_models()
+            app.state.settings = updated
+            if note:
+                print(f"iron: {note}", file=sys.stderr)
+        except Exception as exc:
+            print(f"iron: model check failed: {exc}", file=sys.stderr)
         yield
         try:
             await app.state.engine.close()
@@ -124,6 +120,10 @@ def create_app() -> FastAPI:
     async def bootstrap() -> dict[str, Any]:
         return {"token": app.state.token}
 
+    @app.get("/api/model-status")
+    async def model_status() -> dict[str, Any]:
+        return await app.state.engine.model_status()
+
     @app.get("/api/settings")
     async def get_settings() -> dict[str, Any]:
         return app.state.settings.model_dump()
@@ -133,15 +133,18 @@ def create_app() -> FastAPI:
         updated = merge_settings(app.state.settings, body.model_dump(exclude_none=True))
         app.state.settings = updated
         app.state.engine.reload(updated)
+        # The user picked a model on purpose — the startup repair note is stale.
+        app.state.engine.repair_note = ""
         return updated.model_dump()
 
     @app.get("/api/models")
     async def models() -> dict[str, Any]:
         try:
             items = await app.state.engine.client.list_models()
-            return {"models": items, "error": None}
+            status = await app.state.engine.model_status(items)
+            return {"models": items, "error": None, "note": status["note"]}
         except Exception as exc:
-            return {"models": [], "error": str(exc)}
+            return {"models": [], "error": str(exc), "note": ""}
 
     @app.get("/api/mcp/servers")
     async def mcp_servers() -> dict[str, Any]:
@@ -316,6 +319,11 @@ def create_app() -> FastAPI:
         goal = body.goal.strip()
         if not goal:
             return {"error": "goal required"}
+        # Fail fast with a readable message instead of a 404 from the middle
+        # of the run.
+        status = await app.state.engine.model_status()
+        if not status["available"]:
+            return {"error": status["note"] or "no models available — start ollama and pull a model"}
         project = store.project(body.project_id) if body.project_id else None
         workspace = body.workspace or (project.get("workspace") if project else "") or app.state.settings.workspace
         chat_id = body.chat_id or ""

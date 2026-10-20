@@ -245,6 +245,22 @@ code, .mono, kbd { font-family: "IBM Plex Mono", ui-monospace, monospace; }
 .landing p { margin: 0 0 22px; color: var(--muted); font-size: 14px; }
 .landing .composer { text-align: left; margin: 0; }
 .landing-mark { margin: 0 auto; filter: drop-shadow(0 0 18px rgba(255,255,255,0.18)); }
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(240, 180, 90, 0.28);
+  background: rgba(240, 180, 90, 0.08);
+  color: #e8c893;
+  font-size: 12px;
+  text-align: left;
+}
+.notice-dot { width: 6px; height: 6px; border-radius: 50%; background: #f0b45a; flex: 0 0 auto; box-shadow: 0 0 8px rgba(240, 180, 90, 0.7); }
+.notice-text { flex: 1 1 auto; min-width: 0; }
+.notice .tiny { flex: 0 0 auto; padding: 3px 8px; font-size: 11px; }
 .chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 14px; }
 .chip {
   border-radius: 999px;

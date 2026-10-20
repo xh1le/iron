@@ -78,6 +78,9 @@ class OllamaClient:
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
+        # Ask for usage on the final chunk — without this the token counters
+        # only ever see an estimate.
+        payload["stream_options"] = {"include_usage": True}
         # reasoning / thinking
         if not cloud:
             payload["options"] = {"num_ctx": num_ctx or self.settings.ctx()}
