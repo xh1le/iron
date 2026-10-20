@@ -1,10 +1,4 @@
 import { useEffect, useState } from "react";
-import { codeToHtml } from "shiki";
-
-const THEME = "dark-plus";
-const FALLBACK_LANG = "plaintext";
-
-codeToHtml("", { lang: FALLBACK_LANG, theme: THEME }).catch(() => {});
 
 export default function CodeBlock({ code, lang }: { code: string; lang: string }) {
   const [html, setHtml] = useState<string | null>(null);
@@ -12,13 +6,11 @@ export default function CodeBlock({ code, lang }: { code: string; lang: string }
   useEffect(() => {
     let alive = true;
     const t = window.setTimeout(async () => {
-      try {
-        const langKey = (lang || "").trim().toLowerCase();
-        const h = await codeToHtml(code, { lang: langKey || FALLBACK_LANG, theme: THEME });
-        if (alive) setHtml(h);
-      } catch {
-        if (alive) setHtml(null);
-      }
+      // The highlighter (engine + theme + grammar) is its own chunk — a chat
+      // with no code blocks never pays for it.
+      const { highlight } = await import("../lib/highlight");
+      const out = await highlight(code, lang || "");
+      if (alive) setHtml(out);
     }, 200);
     return () => {
       alive = false;

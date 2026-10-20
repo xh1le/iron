@@ -117,7 +117,7 @@ export default function Iridescence({
     window.addEventListener("mousemove", onMove);
 
     const resize = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 1.75);
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       const w = Math.max(1, Math.floor(canvas.clientWidth * dpr));
       const h = Math.max(1, Math.floor(canvas.clientHeight * dpr));
       if (canvas.width !== w || canvas.height !== h) {
@@ -127,10 +127,18 @@ export default function Iridescence({
       }
     };
 
+    // A fullscreen shader at 60fps is a real battery/CPU tax. Cap the frame
+    // rate and stop entirely while the tab is in the background.
+    const FRAME_MS = 1000 / 30;
     let raf = 0;
+    let last = 0;
+    let running = true;
     const start = performance.now();
-    const tick = () => {
-      raf = requestAnimationFrame(tick);
+
+    const draw = (now: number) => {
+      raf = requestAnimationFrame(draw);
+      if (now - last < FRAME_MS) return;
+      last = now;
       try {
         resize();
         mouse.x += (mouse.tx - mouse.x) * 0.08;
@@ -145,12 +153,27 @@ export default function Iridescence({
         gl.drawArrays(gl.TRIANGLES, 0, 3);
       } catch {
         cancelAnimationFrame(raf);
+        running = false;
       }
     };
-    tick();
+
+    const onVisibility = () => {
+      if (document.hidden) {
+        cancelAnimationFrame(raf);
+        running = false;
+      } else if (!running) {
+        running = true;
+        last = 0;
+        raf = requestAnimationFrame(draw);
+      }
+    };
+
+    raf = requestAnimationFrame(draw);
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
       cancelAnimationFrame(raf);
+      document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("mousemove", onMove);
     };
   }, []);
